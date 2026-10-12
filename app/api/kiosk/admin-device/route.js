@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import {validUuid} from "../../../../lib/kiosk-proof.mjs";
 export const runtime="nodejs";
-const respond=(status,data)=>Response.json(data,{status,headers:{"Cache-Control":"no-store"}});
+const respond=(status,data)=>Response.json({...data,endpoint:"health-kiosk-admin-device-v1"},{status,headers:{"Cache-Control":"no-store","X-Health-Endpoint":"health-kiosk-admin-device-v1"}});
 export async function POST(request){
  const secret=process.env.HEALTH_BRIDGE_KEY;
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/,"");

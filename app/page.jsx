@@ -1,24 +1,79 @@
 "use client";
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {createClient} from "@supabase/supabase-js";
-const url=process.env.NEXT_PUBLIC_SUPABASE_URL, key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+import {addThaiDays,nowThaiInput,SLOTS,summaryForWeek,thaiDate,toThaiInstant} from "../lib/monitoring.mjs";
+const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
+const key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const db=url&&key?createClient(url,key):null;
-const initial={systolic:"",diastolic:"",pulse:"",measured_at:"",session:"morning",sequence:"1",notes:""};
+const empty=()=>({systolic:"",diastolic:"",pulse:"",measured_at:nowThaiInput(),session:"morning",sequence:"1",notes:""});
+const showDate=iso=>new Date(iso).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+const round=n=>n==null?"—":n.toFixed(1);
 export default function Home(){
- const [session,setSession]=useState(null),[email,setEmail]=useState(""),[form,setForm]=useState(initial),[rows,setRows]=useState([]),[message,setMessage]=useState(""),[loading,setLoading]=useState(false);
- useEffect(()=>{if(!db)return;db.auth.getSession().then(({data})=>setSession(data.session));const {data:{subscription}}=db.auth.onAuthStateChange((_event,s)=>setSession(s));return()=>subscription.unsubscribe()},[]);
- useEffect(()=>{if(!session||!db){setRows([]);return;}load()},[session]);
- async function load(){const {data,error}=await db.from("health_measurements").select("id,systolic,diastolic,pulse,measured_at,session,sequence,notes").order("measured_at",{ascending:false}).limit(100);if(error)setMessage("ยังไม่สามารถอ่านข้อมูลได้: "+error.message);else setRows(data||[])}
- async function login(e){e.preventDefault();setLoading(true);const {error}=await db.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.origin}});setLoading(false);setMessage(error?error.message:"ส่งลิงก์เข้าสู่ระบบไปยังอีเมลแล้ว")}
- async function save(e){e.preventDefault();if(!session)return;const sys=Number(form.systolic),dia=Number(form.diastolic),pulse=Number(form.pulse);if(sys<60||sys>300||dia<30||dia>200||pulse<30||pulse>220||sys<=dia){setMessage("โปรดตรวจสอบค่าความดันและชีพจร");return}setLoading(true);const payload={user_id:session.user.id,systolic:sys,diastolic:dia,pulse,measured_at:new Date(form.measured_at).toISOString(),session:form.session,sequence:Number(form.sequence),notes:form.notes.trim(),source:"manual"};const {error}=await db.from("health_measurements").insert(payload);setLoading(false);if(error)setMessage("บันทึกไม่สำเร็จ: "+error.message);else{setMessage("บันทึกสำเร็จ");setForm(initial);load()}}
- const input={width:"100%",boxSizing:"border-box",padding:12,border:"1px solid #cbd5ce",borderRadius:9,fontSize:16,marginTop:6};const panel={background:"white",padding:22,borderRadius:15,boxShadow:"0 2px 14px #15321b10",marginBottom:18};
- const byDate=rows.reduce((a,r)=>{const d=new Date(r.measured_at).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"});(a[d]??=[]).push(r);return a},{});
- const dates=Object.keys(byDate).sort();const eligible=dates.slice(1,7).flatMap(d=>byDate[d]);const avg=k=>eligible.length?(eligible.reduce((n,r)=>n+r[k],0)/eligible.length).toFixed(1):"—";
- return <main style={{maxWidth:920,margin:"auto",padding:"26px 16px 60px"}}><header style={{marginBottom:25}}><div style={{fontSize:13,color:"#557460",letterSpacing:2}}>WAT PHUTTHA UTHAYAN NATHOENG</div><h1 style={{margin:"8px 0"}}>🩺 NATHOENG HEALTH</h1><p>สมุดบันทึกความดันโลหิตและชีพจรที่บ้าน • ระยะที่ 1</p></header>
- {!db?<section style={panel}>ยังไม่ได้กำหนดค่า Supabase URL และ Anon Key</section>:!session?<section style={panel}><h2>เข้าสู่ระบบเพื่อบันทึกสุขภาพ</h2><p>เวอร์ชันทดสอบใช้การยืนยันตัวตนด้วยอีเมล ก่อนเปิดใช้ Member Bridge ของวัด</p><form onSubmit={login}><label>อีเมล<input style={input} type="email" value={email} onChange={e=>setEmail(e.target.value)} required/></label><button disabled={loading} style={button}>ส่งลิงก์เข้าสู่ระบบ</button></form></section>:<>
- <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}><span>บัญชี: {session.user.email}</span><button onClick={()=>db.auth.signOut()} style={{...button,background:"#66756c",marginTop:0}}>ออกจากระบบ</button></div>
- <section style={{...panel,marginTop:18}}><h2>บันทึกผลวัด</h2><p>วัดช่วงเช้า 2 ครั้ง และก่อนนอน 2 ครั้ง ตามแผนติดตาม 7 วันของแพทย์</p><form onSubmit={save}><div style={grid}><label>ความดันตัวบน SYS (mmHg)<input style={input} type="number" min="60" max="300" required value={form.systolic} onChange={e=>setForm({...form,systolic:e.target.value})}/></label><label>ความดันตัวล่าง DIA (mmHg)<input style={input} type="number" min="30" max="200" required value={form.diastolic} onChange={e=>setForm({...form,diastolic:e.target.value})}/></label><label>ชีพจร (ครั้ง/นาที)<input style={input} type="number" min="30" max="220" required value={form.pulse} onChange={e=>setForm({...form,pulse:e.target.value})}/></label><label>วันที่และเวลาที่วัด<input style={input} type="datetime-local" required value={form.measured_at} onChange={e=>setForm({...form,measured_at:e.target.value})}/></label><label>ช่วงเวลา<select style={input} value={form.session} onChange={e=>setForm({...form,session:e.target.value})}><option value="morning">เช้า</option><option value="bedtime">ก่อนนอน</option></select></label><label>ครั้งที่<select style={input} value={form.sequence} onChange={e=>setForm({...form,sequence:e.target.value})}><option value="1">1</option><option value="2">2</option></select></label></div><label>หมายเหตุ<textarea style={{...input,minHeight:65}} maxLength={500} value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label><button style={button} disabled={loading}>บันทึกค่าความดัน</button></form></section>
- <section style={panel}><h2>ประวัติการวัดของฉัน</h2><p>จำนวน {rows.length} รายการ • ค่าเฉลี่ยวันที่ 2–7 (เมื่อมีข้อมูล): SYS {avg("systolic")} / DIA {avg("diastolic")} mmHg</p><p style={{fontSize:13,color:"#69766e"}}>ค่าเฉลี่ยนี้เป็นข้อมูลประกอบการติดตาม ไม่ใช่การวินิจฉัย และต้องตรวจสอบความครบถ้วนของการวัดกับแพทย์</p><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}><thead><tr>{["วันเวลา","ช่วง","ครั้ง","SYS","DIA","ชีพจร"].map(h=><th key={h} style={cell}>{h}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id}><td style={cell}>{new Date(r.measured_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"})}</td><td style={cell}>{r.session==="morning"?"เช้า":"ก่อนนอน"}</td><td style={cell}>{r.sequence}</td><td style={cell}>{r.systolic}</td><td style={cell}>{r.diastolic}</td><td style={cell}>{r.pulse}</td></tr>)}</tbody></table></div><button style={{...button,background:"#5d7167"}} onClick={()=>window.print()}>พิมพ์รายงาน</button></section></>}
- {message&&<p role="status" style={{padding:12,background:"#e5efe6",borderRadius:9}}>{message}</p>}<footer style={{fontSize:12,color:"#65766c"}}>ระบบอยู่ระหว่างทดสอบ • ไม่ใช้แทนการตรวจรักษาของแพทย์ • หากมีอาการฉุกเฉิน โทร 1669</footer></main>
+ const [session,setSession]=useState(null),[checking,setChecking]=useState(true),[email,setEmail]=useState("");
+ const [form,setForm]=useState(empty),[rows,setRows]=useState([]),[message,setMessage]=useState(""),[busy,setBusy]=useState(false),[courseStart,setCourseStart]=useState(thaiDate(new Date()));
+ const choseStart=useRef(false);
+ useEffect(()=>{
+   if(!db){setChecking(false);return}
+   db.auth.getSession().then(({data,error})=>{setSession(data?.session||null);if(error)setMessage(error.message);setChecking(false)}).catch(()=>setChecking(false));
+   const {data:{subscription}}=db.auth.onAuthStateChange((_event,s)=>setSession(s));
+   return()=>subscription.unsubscribe();
+ },[]);
+ useEffect(()=>{if(!session||!db){setRows([]);return}let active=true;
+   db.from("health_measurements").select("id,systolic,diastolic,pulse,measured_at,session,sequence,notes").order("measured_at",{ascending:false}).limit(500).then(({data,error})=>{
+     if(!active)return;
+     if(error){setMessage("อ่านประวัติไม่สำเร็จ: "+error.message);return}
+     setRows(data||[]);
+     if(data?.length&&!choseStart.current){const dates=data.map(r=>thaiDate(r.measured_at)).sort();const last=dates[dates.length-1];const first=dates[0];setCourseStart(last>addThaiDays(first,6)?addThaiDays(last,-6):first)}
+   });return()=>{active=false}
+ },[session]);
+ const summary=summaryForWeek(rows,courseStart);
+ const dated=courseStart+" ถึง "+addThaiDays(courseStart,6);
+ async function login(e){e.preventDefault();if(!db)return;setBusy(true);setMessage("");
+   try{const {error}=await db.auth.signInWithOtp({email:email.trim(),options:{emailRedirectTo:window.location.origin,shouldCreateUser:false}});
+     setMessage(error?"ไม่สามารถส่งลิงก์ได้: "+error.message:"ส่งลิงก์เข้าสู่ระบบให้บัญชีทดสอบที่ลงทะเบียนไว้แล้ว โปรดตรวจอีเมล");
+   }catch(e){setMessage("เชื่อมต่อระบบเข้าสู่ระบบไม่สำเร็จ")}finally{setBusy(false)}
+ }
+ async function save(e){e.preventDefault();if(!db||!session)return;setMessage("");
+   const sys=Number(form.systolic),dia=Number(form.diastolic),pulse=Number(form.pulse);
+   const measured=toThaiInstant(form.measured_at);
+   if(!measured||measured.getTime()>Date.now()+5*60*1000){setMessage("กรุณาตรวจสอบวันเวลา (ใช้เวลาไทย และห้ามระบุเวลาในอนาคต)");return}
+   if(![sys,dia,pulse].every(Number.isInteger)||sys<60||sys>300||dia<30||dia>200||dia>=sys||pulse<30||pulse>220){setMessage("ค่าความดันหรือชีพจรไม่อยู่ในช่วงที่ฟอร์มรองรับ กรุณาตรวจสอบเครื่องวัด");return}
+   const date=thaiDate(measured),seq=Number(form.sequence);
+   if(rows.some(r=>thaiDate(r.measured_at)===date&&r.session===form.session&&Number(r.sequence)===seq)){setMessage("มีข้อมูลช่วงเวลาและครั้งที่นี้แล้ว โปรดตรวจสอบประวัติก่อนบันทึกซ้ำ");return}
+   setBusy(true);
+   try{
+     const {error}=await db.from("health_measurements").insert({user_id:session.user.id,systolic:sys,diastolic:dia,pulse,measured_at:measured.toISOString(),session:form.session,sequence:seq,notes:form.notes.trim(),source:"manual"});
+     if(error){setMessage(error.code==="23505"?"บันทึกซ้ำในช่วงเวลาเดียวกันไม่ได้":("บันทึกไม่สำเร็จ: "+error.message));return}
+     setMessage("บันทึกสำเร็จแล้ว");
+     setForm(empty());
+     const {data, error:reloadError}=await db.from("health_measurements").select("id,systolic,diastolic,pulse,measured_at,session,sequence,notes").order("measured_at",{ascending:false}).limit(500);
+     if(reloadError)setMessage("บันทึกแล้ว แต่ยังโหลดประวัติใหม่ไม่ได้");else setRows(data||[]);
+   }catch(e){setMessage("ไม่สามารถเชื่อมต่อฐานข้อมูลได้")}finally{setBusy(false)}
+ }
+ const danger=rows.some(r=>r.systolic>=180||r.diastolic>=120);
+ return <main>
+ <header className="hero"><div className="eyebrow">WAT PHUTTHA UTHAYAN NATHOENG</div><h1>🩺 NATHOENG HEALTH</h1><p>สมุดบันทึกความดันโลหิตและชีพจรของชุมชน</p><p>ระยะที่ 1 · บันทึกค่าจากเครื่องวัดด้วยตนเอง</p></header>
+ <div className="banner"><strong>ระบบทดลองเท่านั้น</strong> — กรุณาใช้ข้อมูลจำลอง ไม่กรอกข้อมูลผู้ป่วยจริง จนกว่าการตรวจสอบความปลอดภัย การอนุญาตข้อมูลสุขภาพ และการทดสอบระบบจะเสร็จสิ้น</div>
+ {!db?<section className="panel error">ยังไม่ได้ตั้งค่า NEXT_PUBLIC_SUPABASE_URL และ NEXT_PUBLIC_SUPABASE_ANON_KEY ใน Deployment นี้</section>:checking?<section className="panel">กำลังตรวจสอบการเข้าสู่ระบบ...</section>:!session?
+ <section className="panel"><h2>เข้าสู่ระบบสำหรับผู้ทดสอบ</h2><p className="muted">ใช้ Supabase Auth ผ่านอีเมลสำหรับบัญชีทดสอบที่ได้รับอนุญาตเท่านั้น ยังไม่ได้เชื่อม Member Bridge กับ Temple</p><form onSubmit={login}><label className="field">อีเมลบัญชีทดสอบ<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="tester@example.com"/></label><button type="submit" className="primary" disabled={busy} style={{marginTop:15}}>ส่งลิงก์เข้าสู่ระบบ</button></form><p className="small muted">ผู้ดูแลต้องสร้างบัญชีทดสอบใน Supabase Auth และเพิ่ม URL เว็บไซต์นี้ใน Redirect URLs ก่อน</p></section>
+ :<>
+ <div className="topline no-print"><span>เข้าสู่ระบบ: <strong>{session.user.email||"บัญชีทดสอบ"}</strong></span><button className="secondary" onClick={()=>db.auth.signOut()}>ออกจากระบบ</button></div>
+ <section className="panel"><div className="topline"><h2>ติดตามความดัน 7 วัน</h2><label className="field no-print">วันที่เริ่มวัด (วันแรก)<input type="date" value={courseStart} onChange={e=>{if(e.target.value){choseStart.current=true;setCourseStart(e.target.value)}}}/></label></div><p className="muted">รอบวันที่ {dated} • เช้า 2 ครั้ง และก่อนนอน 2 ครั้ง รวม 28 รายการ</p><div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={28} aria-valuenow={summary.received}><span style={{width:(summary.received/28*100)+"%"}}/></div><p><strong>{summary.received}/28</strong> ครั้ง ({Math.round(summary.received/28*100)}%)</p>
+ <div className="daygrid">{summary.days.map(d=><div className={"day"+(d.count===4?" done":"")} key={d.date}><strong>วันที่ {d.day}</strong><div className="small">{d.date}</div><div>{d.count===4?"✓ ครบ":d.count+"/4 ครั้ง"}</div><div className="small muted">{d.day===1?"ไม่คิดเฉลี่ย":"คิดค่าเฉลี่ย"}</div></div>)}</div>
+ {summary.complete?<><div className="stats"><div className="stat">ค่าเฉลี่ย SYS<strong>{round(summary.averages.systolic)}</strong></div><div className="stat">ค่าเฉลี่ย DIA<strong>{round(summary.averages.diastolic)}</strong></div><div className="stat">ชีพจรเฉลี่ย<strong>{round(summary.averages.pulse)}</strong></div></div><p className="small muted">คำนวณจาก 24 รายการของวันที่ 2–7 เท่านั้น (mmHg / ครั้งต่อนาที) ตามรูปแบบบันทึกที่ได้รับ</p></>:<p className="muted">ยังวัดไม่ครบ 7 วัน จึงยังไม่แสดงค่าเฉลี่ยสำหรับรายงานแพทย์</p>}
+ </section>
+ <section className="panel no-print"><h2>บันทึกค่าความดันด้วยตนเอง</h2><p className="muted">วัดด้วยเครื่องที่บ้านหรือที่วัด แล้วพิมพ์ผลจากเครื่องตามจริง ระบบใช้เวลาไทย (UTC+7)</p><form onSubmit={save}><div className="inputs">
+ <label className="field">ความดันตัวบน SYS (mmHg)<input required inputMode="numeric" type="number" min="60" max="300" value={form.systolic} onChange={e=>setForm({...form,systolic:e.target.value})}/></label>
+ <label className="field">ความดันตัวล่าง DIA (mmHg)<input required inputMode="numeric" type="number" min="30" max="200" value={form.diastolic} onChange={e=>setForm({...form,diastolic:e.target.value})}/></label>
+ <label className="field">ชีพจร (ครั้ง/นาที)<input required inputMode="numeric" type="number" min="30" max="220" value={form.pulse} onChange={e=>setForm({...form,pulse:e.target.value})}/></label>
+ <label className="field">วันเวลาไทยที่วัด<input required type="datetime-local" value={form.measured_at} onChange={e=>setForm({...form,measured_at:e.target.value})}/></label>
+ <label className="field">ช่วงที่วัด<select value={form.session} onChange={e=>setForm({...form,session:e.target.value})}><option value="morning">ช่วงเช้า</option><option value="bedtime">ช่วงก่อนนอน</option></select></label>
+ <label className="field">ครั้งที่<select value={form.sequence} onChange={e=>setForm({...form,sequence:e.target.value})}><option value="1">ครั้งที่ 1</option><option value="2">ครั้งที่ 2</option></select></label>
+ </div><label className="field">หมายเหตุ (ไม่ต้องระบุชื่อหรือข้อมูลระบุตัวบุคคล)<textarea maxLength={500} value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label><button className="primary" type="submit" disabled={busy} style={{marginTop:16}}>{busy?"กำลังบันทึก...":"บันทึกผลการวัด"}</button></form></section>
+ <section className="panel"><div className="topline"><h2>ประวัติผลการวัด</h2><button className="secondary no-print" onClick={()=>window.print()}>พิมพ์ / บันทึก PDF</button></div><p className="muted small">ข้อมูลส่วนตัวของบัญชีที่เข้าสู่ระบบเท่านั้น • แสดงล่าสุดไม่เกิน 500 รายการ</p><div className="scroll"><table><thead><tr>{["วันที่และเวลา","ช่วงเวลา","ครั้ง","SYS","DIA","ชีพจร"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{showDate(r.measured_at)}</td><td>{r.session==="morning"?"เช้า":"ก่อนนอน"}</td><td>{r.sequence}</td><td>{r.systolic}</td><td>{r.diastolic}</td><td>{r.pulse}</td></tr>)}{rows.length===0&&<tr><td colSpan={6}>ยังไม่มีข้อมูลสำหรับบัญชีนี้</td></tr>}</tbody></table></div></section>
+ {danger&&<div className="danger">ในประวัติมีค่าความดันสูงมาก (ตัวบนตั้งแต่ 180 หรือตัวล่างตั้งแต่ 120 mmHg) ควรวัดซ้ำอย่างถูกวิธีและปรึกษาบุคลากรแพทย์โดยเร็ว หากมีอาการเจ็บหน้าอก หายใจลำบาก อ่อนแรง หรือพูดผิดปกติ โทร 1669 ทันที</div>}
+ </>}
+ {message&&<div role="status" className={message.includes("ไม่สำเร็จ")||message.includes("ไม่ได้")||message.includes("ซ้ำ")?"error":"message"} style={{marginTop:14}}>{message}</div>}
+ <footer>ระบบทดลองเพื่อบันทึกผล ไม่ใช้แทนการวินิจฉัยหรือรักษาของแพทย์ • ข้อมูลสุขภาพต้องได้รับการคุ้มครองตามสิทธิ์ของเจ้าของข้อมูล • งานระบบแพทย์และ Member Bridge ยังไม่เปิดใช้งาน</footer>
+ </main>;
 }
-const grid={display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:16};const button={background:"#24744c",color:"white",border:0,borderRadius:9,padding:"12px 20px",fontSize:16,marginTop:15,cursor:"pointer"};const cell={padding:"10px 7px",borderBottom:"1px solid #e3e9e4",textAlign:"left"};

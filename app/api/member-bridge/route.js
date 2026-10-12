@@ -1,7 +1,14 @@
+import {processDeviceAdmin,DEVICE_ROUTE_SCOPE} from "../../../lib/health-device-admin.mjs";
 import crypto from "node:crypto";
 import {verifyHealthBridge,validateHealthBridge} from "../../../api/member-bridge.js";
 export const runtime="nodejs";
 export async function POST(request){
+  // Explicitly dispatch kiosk device commands on the proven Member Bridge path.
+  if(new URL(request.url).searchParams.get("scope")===DEVICE_ROUTE_SCOPE){
+    let raw;try{raw=await request.text()}catch{return Response.json({success:false,endpoint:"health-kiosk-admin-device-v1"},{status:400})}
+    const result=await processDeviceAdmin(raw,request.headers.get("x-health-signature"));
+    return Response.json(result.body,{status:result.status,headers:{"Cache-Control":"no-store"}});
+  }
   const headers={"Cache-Control":"no-store","Content-Type":"application/json"};
   const response=(status,obj)=>new Response(JSON.stringify(obj),{status,headers});
   const secret=process.env.HEALTH_BRIDGE_KEY;

@@ -130,6 +130,23 @@ public final class MainActivity extends Activity {
     root.addView(text("ทดลองอุปกรณ์เท่านั้น • ไม่บันทึกข้อมูลสุขภาพ • ไม่ได้เข้าสู่ระบบสมาชิก",15));
     status=text("พร้อมทดสอบอุปกรณ์",16);root.addView(status);
     identity=text("ยังไม่ได้อ่านบัตร",16);root.addView(identity);
+    Button device=button("0. ข้อมูลลงทะเบียนเครื่อง Health (สำหรับผู้ดูแล)");
+    device.setOnClickListener(v->{
+      try{
+        String id=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+        if(id==null){id=UUID.randomUUID().toString();getPreferences(MODE_PRIVATE).edit().putString("kiosk_device_id",id).apply();}
+        String publicKey=DeviceIdentity.publicKeyBase64();
+        final String body="Device ID: "+id+"\\n\\nPublic key (SPKI Base64):\\n"+publicKey;
+        TextView textView=text(body,13);textView.setTextIsSelectable(true);
+        new android.app.AlertDialog.Builder(this).setTitle("ลงทะเบียนกับผู้ดูแล Health").setView(textView)
+          .setPositiveButton("คัดลอกข้อมูล", (d,which)->{
+             ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE))
+                 .setPrimaryClip(android.content.ClipData.newPlainText("Health device registration",body));
+             message("คัดลอกข้อมูลเครื่องแล้ว • ส่งให้ผู้ดูแลวัดโดยตรงเท่านั้น");
+          }).setNegativeButton("ปิด",null).show();
+      }catch(Exception e){message("อ่านกุญแจเครื่องไม่สำเร็จ: "+e.getClass().getSimpleName());}
+    });
+    root.addView(device);
     Button read=button("1. อ่านบัตรประชาชนผ่าน Type-C OTG");read.setOnClickListener(v->requestCardRead());root.addView(read);
     Button clear=button("ล้างหน้าจอ / สิ้นสุดการทดลอง");clear.setOnClickListener(v->{readGeneration++;clearIdentityAndValues();disconnectBluetooth();message("ล้างข้อมูลแล้ว");});root.addView(clear);
     root.addView(text("2. ค่าความดันและชีพจร",20));

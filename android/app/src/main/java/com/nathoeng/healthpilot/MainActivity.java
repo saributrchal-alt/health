@@ -33,7 +33,8 @@ public final class MainActivity extends Activity {
   private TextView status, identity;
   private LinearLayout devices;
   private EditText systolic, diastolic, pulse;
-  private boolean scanning=false, reading=false;
+  private boolean scanning=false, reading=false, proofBusy=false;
+  private int proofGeneration=0;
   private final Handler main=new Handler(Looper.getMainLooper());
   private final Set<String> seen=new HashSet<>();
   private int readGeneration=0;
@@ -147,6 +148,10 @@ public final class MainActivity extends Activity {
       }catch(Exception e){message("อ่านกุญแจเครื่องไม่สำเร็จ: "+e.getClass().getSimpleName());}
     });
     root.addView(device);
+    Button verify=button("0.1 ตรวจสอบอุปกรณ์กับ Health Server");
+    verify.setOnClickListener(v->verifyHealthDevice());
+    root.addView(verify);
+    root.addView(text("การตรวจอุปกรณ์ไม่ใช่การยืนยันสมาชิก และยังไม่เปิดข้อมูลสุขภาพ",14));
     Button read=button("1. อ่านบัตรประชาชนผ่าน Type-C OTG");read.setOnClickListener(v->requestCardRead());root.addView(read);
     Button clear=button("ล้างหน้าจอ / สิ้นสุดการทดลอง");clear.setOnClickListener(v->{readGeneration++;clearIdentityAndValues();disconnectBluetooth();message("ล้างข้อมูลแล้ว");});root.addView(clear);
     root.addView(text("2. ค่าความดันและชีพจร",20));
@@ -222,6 +227,33 @@ public final class MainActivity extends Activity {
         else {identity.setText(ok);startCardCheck(reader,currentId);message("อ่านบัตรได้แล้ว กำลังตรวจว่าบัตรเดิมยังเสียบอยู่ • ยังไม่ยืนยันสมาชิก");}
       });
     },"health-otg-read").start();
+  }
+  private void verifyHealthDevice(){
+    if(proofBusy)return;
+    final String deviceId=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+    if(deviceId==null){message("โปรดกดข้อมูลลงทะเบียนเครื่อง (ปุ่ม 0) ก่อน");return;}
+    proofBusy=true;
+    final int ticket=++proofGeneration;
+    message("กำลังตรวจอุปกรณ์กับ Health Server...");
+    new Thread(()->{
+      String result;
+      try {
+        if(HealthDeviceProof.verify(deviceId))
+          result="✓ อุปกรณ์ผ่านการยืนยันจาก Health Server แล้ว • ยังไม่ยืนยันสมาชิก/ยังไม่เปิดข้อมูลสุขภาพ";
+        else result="ยืนยันอุปกรณ์ไม่สำเร็จ";
+      }catch(Exception e){
+        String type=e instanceof java.net.UnknownHostException?"อินเทอร์เน็ตหรือ DNS ใช้งานไม่ได้":
+          e instanceof java.net.SocketTimeoutException?"เชื่อมต่อ Health Server หมดเวลา":
+          e instanceof java.io.IOException?e.getMessage():"เกิดข้อผิดพลาดในการตรวจอุปกรณ์";
+        result="✕ "+type;
+      }
+      final String messageText=result;
+      runOnUiThread(()->{
+        if(ticket!=proofGeneration||isDestroyed())return;
+        proofBusy=false;
+        message(messageText);
+      });
+    },"health-device-proof").start();
   }
   private void previewValues(){
     try{
@@ -312,7 +344,7 @@ public final class MainActivity extends Activity {
     gatt=null;
   }
   @Override protected void onStop(){
-    super.onStop();readGeneration++;stopCardCheck();identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
+    super.onStop();proofGeneration++;proofBusy=false;readGeneration++;stopCardCheck();identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
     clearIdentityAndValues();disconnectBluetooth();
   }
   @Override protected void onDestroy(){unregisterReceiver(usbReceiver);disconnectBluetooth();super.onDestroy();}

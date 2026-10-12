@@ -12,6 +12,9 @@ export async function POST(req){
    (p.action!=="revoke"&&!/^[0-9]{13}$/.test(p.citizen_id))||typeof p.confirm_consent!=="boolean"||
    typeof p.issued_at!=="string"||Math.abs(Date.now()-Date.parse(p.issued_at))>300000)
    return reply(400,{success:false,message:"Invalid request"});
+ // Physical chip-read proof flow is still under development.
+ // Never accept legacy admin-only approval without a bound device claim.
+ if(p.action==="approve")return reply(409,{success:false,message:"CARD_PRESENT_PROOF_REQUIRED"});
  const secret=process.env.HEALTH_CARD_HMAC_SECRET;
  const supa=process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/,"");
  const svc=process.env.SUPABASE_SECRET_KEY;

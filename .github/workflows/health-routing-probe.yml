@@ -1,0 +1,30 @@
+name: Health public route diagnostic (no user data)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/health-routing-probe.yml']
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Probe only unauthenticated API error routing
+        shell: bash
+        run: |
+          set -u
+          for route in '/api/kiosk/admin-device' '/api/member-bridge?scope=health-kiosk-device-v1' '/api/member-bridge'; do
+            echo "=== POST $route ==="
+            curl --connect-timeout 8 --max-time 20 -sS -D /tmp/headers -o /tmp/body -w 'HTTP:%{http_code}\n' \
+              -X POST "https://health.nathoeng.com$route" -H 'content-type: application/json' --data '{}' || true
+            grep -i -E '^(content-type|location|x-health-endpoint|x-vercel-id|x-matched-path|x-vercel-cache):' /tmp/headers || true
+            head -c 500 /tmp/body; echo
+          done
+          for route in '/api/kiosk/admin-device' '/api/member-bridge?scope=health-kiosk-device-v1'; do
+            echo "=== GET $route ==="
+            curl --connect-timeout 8 --max-time 20 -sS -D /tmp/headers -o /tmp/body -w 'HTTP:%{http_code}\n' \
+              "https://health.nathoeng.com$route" || true
+            grep -i -E '^(content-type|location|x-health-endpoint|x-vercel-id|x-matched-path|x-vercel-cache):' /tmp/headers || true
+            head -c 500 /tmp/body; echo
+          done

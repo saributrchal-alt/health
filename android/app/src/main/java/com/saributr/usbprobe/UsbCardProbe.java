@@ -3,7 +3,14 @@ import android.hardware.usb.*;
 import java.io.*;
 public final class UsbCardProbe {
  public static String run(UsbManager manager,UsbDevice device) throws IOException {return (String)run(manager,device,null);}
+ /** Small chip read to verify the SAME inserted card remains present. */
+ public static String readCitizenId(UsbManager manager,UsbDevice device) throws IOException {
+  return (String)perform(manager,device,null,true);
+ }
  public static Object run(UsbManager manager,UsbDevice device,ThaiCard.Progress progress) throws IOException {
+  return perform(manager,device,progress,false);
+ }
+ private static Object perform(UsbManager manager,UsbDevice device,ThaiCard.Progress progress,boolean idOnly) throws IOException {
   UsbInterface face=null;UsbEndpoint in=null,out=null;
   for(int i=0;i<device.getInterfaceCount();i++){
    UsbInterface f=device.getInterface(i);if(f.getInterfaceClass()!=11)continue;
@@ -40,6 +47,7 @@ public final class UsbCardProbe {
     }
    };
    Ccid c=new Ccid(transport);
+   if(idOnly)return new ThaiCard(c).readCitizenId();
    if(progress==null)return c.probe();
    byte[] descriptors=connection.getRawDescriptors();int features=-1;int currentInterface=-1;
    if(descriptors!=null)for(int at=0;at+2<=descriptors.length;){int size=descriptors[at]&255;if(size<2||at+size>descriptors.length)break;

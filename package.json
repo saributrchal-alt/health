@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "npm run test && next build",
     "start": "next start",
-    "test": "node --test lib/monitoring.test.mjs tests/member-bridge.test.mjs tests/kiosk-proof.test.mjs tests/health-device-admin.test.mjs"
+    "test": "node --test lib/monitoring.test.mjs tests/member-bridge.test.mjs tests/kiosk-proof.test.mjs tests/health-device-admin.test.mjs tests/pin-verifier.test.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",

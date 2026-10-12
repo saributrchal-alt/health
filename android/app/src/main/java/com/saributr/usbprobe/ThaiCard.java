@@ -40,6 +40,18 @@ public final class ThaiCard {
   try{LocalDate.of(year-543,month,day);}catch(Exception e){throw new IOException("วันเกิดจากบัตรไม่ถูกต้อง");}
   return String.format("%02d/%02d/%04d (พ.ศ.)",day,month,year);
  }
+ /** Read only the chip identity for a short-lived, continuous presence check.
+  * Never exports the citizen number outside the running Android process. */
+ public String readCitizenId()throws IOException{
+  if(ccid.command(0x65,0x81).status==2)throw new IOException("Card removed");
+  Ccid.Reply atr=ccid.command(0x62,0x80);
+  if(atr.status!=0||atr.data.length<2)throw new IOException("Card not responding");
+  responseP2=(atr.data[0]==0x3B&&atr.data[1]==0x67)?1:0;
+  apdu(new byte[]{0,(byte)0xA4,4,0,8,(byte)0xA0,0,0,0,0x54,0x48,0,1});
+  String id=new String(read(0x04,13),Charset.forName("US-ASCII"));
+  if(!id.matches("[0-9]{13}"))throw new IOException("Invalid card identity");
+  return id;
+ }
  public Data readAll(Progress progress)throws IOException{
   if(ccid.command(0x65,0x81).status==2)throw new IOException("ยังไม่พบบัตร กรุณาเสียบบัตร");
   try{

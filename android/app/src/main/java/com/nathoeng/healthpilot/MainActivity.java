@@ -12,6 +12,9 @@ import android.os.*;
 import android.view.*;
 import android.widget.*;
 import java.util.*;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
 import com.saributr.usbprobe.ThaiCard;
 import com.saributr.usbprobe.UsbCardProbe;
 
@@ -35,6 +38,54 @@ public final class MainActivity extends Activity {
   private final Set<String> seen=new HashSet<>();
   private int readGeneration=0;
   private final Runnable stopScan=()->stopBluetoothScan();
+  private byte[] cardSalt,cardTag;
+  private UsbDevice cardReader;
+  private boolean cardCheckRunning=false;
+  private final Runnable cardCheck=()->verifySameCard();
+  private void stopCardCheck(){
+    main.removeCallbacks(cardCheck);
+    if(cardSalt!=null)Arrays.fill(cardSalt,(byte)0);
+    if(cardTag!=null)Arrays.fill(cardTag,(byte)0);
+    cardSalt=null;cardTag=null;cardReader=null;cardCheckRunning=false;
+  }
+  private static byte[] cardTag(String id,byte[] salt)throws Exception{
+    MessageDigest sha=MessageDigest.getInstance("SHA-256");
+    sha.update(salt);
+    return sha.digest(id.getBytes(StandardCharsets.US_ASCII));
+  }
+  private void startCardCheck(UsbDevice reader,String id){
+    stopCardCheck();
+    byte[] salt=new byte[32];new SecureRandom().nextBytes(salt);
+    try{cardSalt=salt;cardTag=cardTag(id,salt);cardReader=reader;main.postDelayed(cardCheck,2000);}
+    catch(Exception ignored){clearIdentityAndValues();message("เริ่มตรวจการเสียบบัตรไม่สำเร็จ");}
+  }
+  /** Fail closed on removal, quick card swaps, permission loss, USB errors or reader failure. */
+  private void verifySameCard(){
+    if(cardReader==null||cardTag==null||cardSalt==null||cardCheckRunning||reading)return;
+    final UsbDevice reader=cardReader;
+    final int ticket=readGeneration;
+    final byte[] expected=cardTag.clone(),salt=cardSalt.clone();
+    cardCheckRunning=true;
+    new Thread(()->{
+      boolean matches=false;
+      try{
+        if(usb.hasPermission(reader)){
+          String id=UsbCardProbe.readCitizenId(usb,reader);
+          matches=MessageDigest.isEqual(expected,cardTag(id,salt));
+        }
+      }catch(Exception ignored){/* Fail closed: no valid evidence that the same card is still inserted. */}
+      finally{Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);}
+      final boolean valid=matches;
+      runOnUiThread(()->{
+        if(isDestroyed()||ticket!=readGeneration)return;
+        cardCheckRunning=false;
+        if(!valid){
+          readGeneration++;clearIdentityAndValues();
+          message("ไม่พบบัตรเดิมหรืออ่านชิปไม่ได้ • ล้างข้อมูลแล้ว กรุณาเสียบบัตรและอ่านใหม่");
+        }else main.postDelayed(cardCheck,2000);
+      });
+    },"health-card-presence-check").start();
+  }
   private final BroadcastReceiver usbReceiver=new BroadcastReceiver(){
     @Override public void onReceive(Context context,Intent intent){
       String action=intent.getAction();
@@ -100,10 +151,12 @@ public final class MainActivity extends Activity {
   }
   private Button button(String label){Button b=new Button(this);b.setText(label);b.setAllCaps(false);return b;}
   private EditText number(String hint,LinearLayout root){
-    EditText n=new EditText(this);n.setSingleLine(true);n.setHint(hint);n.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);root.addView(n);return n;
+    root.addView(text(hint,17));
+    EditText n=new EditText(this);n.setSingleLine(true);n.setHint("ระบุตัวเลข");n.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);root.addView(n);return n;
   }
   private void message(String text){status.setText(text);}
   private void clearIdentityAndValues(){
+    stopCardCheck();
     identity.setText("ยังไม่ได้อ่านบัตร");
     if(systolic!=null)systolic.setText("");
     if(diastolic!=null)diastolic.setText("");
@@ -131,23 +184,25 @@ public final class MainActivity extends Activity {
   }
   private void readSmartCard(UsbDevice reader){
     if(reading)return;
+    stopCardCheck();
     reading=true;int ticket=++readGeneration;message("กำลังอ่านบัตรจากชิป...");
     new Thread(()->{
-      String result,error=null;
+      String result,error=null,chipId=null;
       try{
         ThaiCard.Data card=(ThaiCard.Data)UsbCardProbe.run(usb,reader,msg->runOnUiThread(()->{if(ticket==readGeneration)message(msg);}));
         String id=card.citizenId;
+        chipId=id;
         String suffix=id!=null&&id.length()==13?id.substring(9):"----";
         result="อ่านบัตรสำเร็จ: "+card.name+" • ลงท้าย "+suffix+" (ยังไม่ได้ยืนยันสมาชิก)";
         // Do not write/store/full-display card number, photo, address, JSON or medical record.
         card.citizenId=null;card.photo=null;card.name=null;
       }catch(Exception e){result=null;error=e.getMessage();}
-      final String ok=result,fail=error;
+      final String ok=result,fail=error,currentId=chipId;
       runOnUiThread(()->{
         if(ticket!=readGeneration||isDestroyed())return;
         reading=false;
         if(ok==null){clearIdentityAndValues();message("อ่านบัตรไม่สำเร็จ: "+fail);}
-        else {identity.setText(ok);message("อ่านบัตรได้แล้ว รอระบบยืนยันอุปกรณ์ + PIN ก่อนเปิดบัญชีจริง");}
+        else {identity.setText(ok);startCardCheck(reader,currentId);message("อ่านบัตรได้แล้ว กำลังตรวจว่าบัตรเดิมยังเสียบอยู่ • ยังไม่ยืนยันสมาชิก");}
       });
     },"health-otg-read").start();
   }
@@ -240,7 +295,7 @@ public final class MainActivity extends Activity {
     gatt=null;
   }
   @Override protected void onStop(){
-    super.onStop();readGeneration++;identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
+    super.onStop();readGeneration++;stopCardCheck();identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
     clearIdentityAndValues();disconnectBluetooth();
   }
   @Override protected void onDestroy(){unregisterReceiver(usbReceiver);disconnectBluetooth();super.onDestroy();}

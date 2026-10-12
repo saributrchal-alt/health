@@ -153,6 +153,8 @@ public final class MainActivity extends Activity {
     root.addView(verify);
     root.addView(text("การตรวจอุปกรณ์ไม่ใช่การยืนยันสมาชิก และยังไม่เปิดข้อมูลสุขภาพ",14));
     Button read=button("1. อ่านบัตรประชาชนผ่าน Type-C OTG");read.setOnClickListener(v->requestCardRead());root.addView(read);
+    Button claim=button("1.1 สร้างรหัสยืนยันบัตร Health (ใช้ภายใน 3 นาที)");
+    claim.setOnClickListener(v->createHealthCardClaim());root.addView(claim);
     Button clear=button("ล้างหน้าจอ / สิ้นสุดการทดลอง");clear.setOnClickListener(v->{readGeneration++;clearIdentityAndValues();disconnectBluetooth();message("ล้างข้อมูลแล้ว");});root.addView(clear);
     root.addView(text("2. ค่าความดันและชีพจร",20));
     systolic=number("SYS (ตัวบน) mmHg",root);
@@ -254,6 +256,40 @@ public final class MainActivity extends Activity {
         message(messageText);
       });
     },"health-device-proof").start();
+  }
+  private void createHealthCardClaim(){
+    if(cardReader==null||cardTag==null||cardSalt==null||reading||proofBusy){
+      message("อ่านชิปบัตรประชาชนก่อน แล้วเสียบบัตรเดิมค้างไว้");return;
+    }
+    final UsbDevice reader=cardReader;
+    final byte[] expected=cardTag.clone(), salt=cardSalt.clone();
+    final String deviceId=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+    if(deviceId==null){message("ยังไม่มี Device ID");return;}
+    proofBusy=true;
+    final int ticket=++proofGeneration;
+    final int cardTicket=readGeneration;
+    message("กำลังตรวจชิปบัตรเดิมและขอรหัสชั่วคราว...");
+    new Thread(()->{
+      String code=null,err=null;
+      try{
+        if(!usb.hasPermission(reader))throw new IllegalStateException();
+        String freshId=UsbCardProbe.readCitizenId(usb,reader);
+        if(!MessageDigest.isEqual(expected,cardTag(freshId,salt)))throw new IllegalStateException();
+        code=HealthDeviceProof.makeClaim(deviceId,freshId);
+      }catch(Exception e){err="ขอรหัสไม่ได้: บัตรไม่ตรง ไม่พร้อม หรือเซิร์ฟเวอร์ปฏิเสธ";}
+      finally{Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);}
+      final String result=code,error=err;
+      runOnUiThread(()->{
+        if(ticket!=proofGeneration||cardTicket!=readGeneration||isDestroyed())return;
+        proofBusy=false;
+        if(error!=null){message(error);return;}
+        message("ได้รับรหัสยืนยันแล้ว (หมดอายุใน 3 นาที)");
+        final TextView codeText=text(result,27);
+        new android.app.AlertDialog.Builder(this).setTitle("รหัสยืนยันบัตร Health")
+          .setMessage("แจ้งรหัสนี้ต่อเจ้าหน้าที่วัดเท่านั้น ห้ามส่งเลขบัตรประชาชน")
+          .setView(codeText).setPositiveButton("ปิด",null).show();
+      });
+    },"health-card-claim").start();
   }
   private void previewValues(){
     try{

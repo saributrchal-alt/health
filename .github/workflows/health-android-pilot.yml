@@ -31,6 +31,35 @@ jobs:
       - name: Build Android debug hardware-only pilot
         working-directory: android
         run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Restore stable pilot signing key if configured
+        env:
+          HEALTH_SIGNING_KEYSTORE_BASE64: ${{ secrets.HEALTH_SIGNING_KEYSTORE_BASE64 }}
+          HEALTH_SIGNING_PASSWORD: ${{ secrets.HEALTH_SIGNING_PASSWORD }}
+        shell: bash
+        run: |
+          if [ -z "${HEALTH_SIGNING_KEYSTORE_BASE64:-}" ] || [ -z "${HEALTH_SIGNING_PASSWORD:-}" ]; then
+            echo "Stable signing secrets not configured: will NOT produce an installable release APK"
+            exit 0
+          fi
+          echo "$HEALTH_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nathoeng-health-signing.p12"
+          chmod 600 "$RUNNER_TEMP/nathoeng-health-signing.p12"
+          echo "HEALTH_SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/nathoeng-health-signing.p12" >> "$GITHUB_ENV"
+          echo "HEALTH_SIGNING_PASSWORD=$HEALTH_SIGNING_PASSWORD" >> "$GITHUB_ENV"
+      - name: Build stable signed release pilot
+        if: env.HEALTH_SIGNING_KEYSTORE_PATH != ''
+        working-directory: android
+        run: gradle :app:assembleRelease --no-daemon
+      - name: Archive stable signed release pilot
+        if: env.HEALTH_SIGNING_KEYSTORE_PATH != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nathoeng-Health-Android-STABLE-SIGNED-PILOT
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 7
+      - name: Erase build-runner signing key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/nathoeng-health-signing.p12"
       - name: Archive testing APK (not production)
         uses: actions/upload-artifact@v4
         with:

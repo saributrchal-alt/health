@@ -1,4 +1,4 @@
-name: Health public route diagnostic (no user data)
+name: Health public route diagnostic (no user data) # after Node 22 redeploy
 on:
   push:
     branches: [main]

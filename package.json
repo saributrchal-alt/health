@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "npm run test && next build",
     "start": "next start",
-    "test": "node --test lib/monitoring.test.mjs"
+    "test": "node --test lib/monitoring.test.mjs tests/member-bridge.test.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",

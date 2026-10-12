@@ -1,4 +1,4 @@
-name: Health public route diagnostic (no user data) # verify ERR_REQUIRE_ESM repair
+name: Health public route diagnostic (no user data) # verify App Router after legacy API removal
 on:
   push:
     branches: [main]

@@ -19,6 +19,13 @@ export async function POST(req){
  const hash=lookupCard(p.citizen_id,secret);
  const headers={"apikey":svc,...(svc.startsWith("sb_secret_")?{}:{"Authorization":"Bearer "+svc}),"Content-Type":"application/json"};
  try{
+  // Never allow a signed command to bind one person's card to another member record.
+  const memberRes=await fetch(supa+"/rest/v1/members?id=eq."+encodeURIComponent(p.member_id)+
+    "&select=id,tax_id,id_card_verified_at,membership_status&limit=1",{headers,cache:"no-store",signal:AbortSignal.timeout(8000)});
+  if(!memberRes.ok)return reply(503,{success:false,message:"Member verification unavailable"});
+  const members=await memberRes.json(),m=members?.[0];
+  if(!m||m.membership_status!=="active"||!m.id_card_verified_at||m.tax_id!==p.citizen_id)
+    return reply(409,{success:false,message:"Member identity verification failed"});
   const res=await fetch(supa+"/rest/v1/rpc/health_admin_card_binding",{
    method:"POST",headers,cache:"no-store",signal:AbortSignal.timeout(8000),
    body:JSON.stringify({p_event_id:p.event_id,p_member_id:p.member_id,p_actor_id:p.actor_id,p_action:p.action,

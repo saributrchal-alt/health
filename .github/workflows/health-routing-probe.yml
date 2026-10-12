@@ -21,10 +21,38 @@ jobs:
             grep -i -E '^(content-type|location|x-health-endpoint|x-vercel-id|x-matched-path|x-vercel-cache):' /tmp/headers || true
             head -c 500 /tmp/body; echo
           done
-          for route in '/api/kiosk/admin-device' '/api/member-bridge?scope=health-kiosk-device-v1'; do
+          for route in '/' '/api/kiosk/admin-device' '/api/member-bridge?scope=health-kiosk-device-v1' '/api/kiosk/device-proof'; do
             echo "=== GET $route ==="
             curl --connect-timeout 8 --max-time 20 -sS -D /tmp/headers -o /tmp/body -w 'HTTP:%{http_code}\n' \
               "https://health.nathoeng.com$route" || true
             grep -i -E '^(content-type|location|x-health-endpoint|x-vercel-id|x-matched-path|x-vercel-cache):' /tmp/headers || true
             head -c 500 /tmp/body; echo
           done
+
+  local-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build with no production credentials
+        run: |
+          npm install --no-package-lock --no-audit --no-fund
+          npm run build
+      - name: Local HTTP server runtime smoke test
+        shell: bash
+        run: |
+          npm run start -- -p 3555 > /tmp/next-runtime.log 2>&1 &
+          echo $! > /tmp/next-runtime.pid
+          sleep 8
+          for route in '/' '/api/kiosk/admin-device' '/api/member-bridge?scope=health-kiosk-device-v1'; do
+            echo "=== localhost GET $route ==="
+            curl --max-time 10 -sS -o /tmp/body -w 'HTTP:%{http_code}\\n' "http://localhost:3555$route" || true
+            head -c 400 /tmp/body; echo
+          done
+          echo '=== local application startup errors ==='
+          tail -n 45 /tmp/next-runtime.log
+          kill "$(cat /tmp/next-runtime.pid)" || true

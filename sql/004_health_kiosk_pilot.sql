@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.health_kiosk_devices (
   id uuid primary key default gen_random_uuid(),
   label text not null check(length(label) between 2 and 120),
-  hmac_key_base64 text not null check(length(hmac_key_base64) between 40 and 100),
+  public_key_spki_base64 text not null check(length(public_key_spki_base64) between 80 and 700),
   enabled boolean not null default false,
   created_at timestamptz not null default now()
 );

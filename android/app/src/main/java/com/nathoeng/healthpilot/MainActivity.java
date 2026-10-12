@@ -41,9 +41,11 @@ public final class MainActivity extends Activity {
   private final Runnable stopScan=()->stopBluetoothScan();
   private byte[] cardSalt,cardTag;
   private UsbDevice cardReader;
+  private android.app.AlertDialog claimDialog;
   private boolean cardCheckRunning=false;
   private final Runnable cardCheck=()->verifySameCard();
   private void stopCardCheck(){
+    if(claimDialog!=null){claimDialog.dismiss();claimDialog=null;}
     main.removeCallbacks(cardCheck);
     if(cardSalt!=null)Arrays.fill(cardSalt,(byte)0);
     if(cardTag!=null)Arrays.fill(cardTag,(byte)0);
@@ -285,9 +287,15 @@ public final class MainActivity extends Activity {
         if(error!=null){message(error);return;}
         message("ได้รับรหัสยืนยันแล้ว (หมดอายุใน 3 นาที)");
         final TextView codeText=text(result,27);
-        new android.app.AlertDialog.Builder(this).setTitle("รหัสยืนยันบัตร Health")
+        claimDialog=new android.app.AlertDialog.Builder(this).setTitle("รหัสยืนยันบัตร Health")
           .setMessage("แจ้งรหัสนี้ต่อเจ้าหน้าที่วัดเท่านั้น ห้ามส่งเลขบัตรประชาชน")
-          .setView(codeText).setPositiveButton("ปิด",null).show();
+          .setView(codeText).setPositiveButton("ปิด",null).create();
+        claimDialog.show();
+        main.postDelayed(()->{
+          if(ticket==proofGeneration&&claimDialog!=null){
+            claimDialog.dismiss();claimDialog=null;
+          }
+        },180000);
       });
     },"health-card-claim").start();
   }

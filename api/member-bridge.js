@@ -1,3 +1,4 @@
+import {processDeviceAdmin,DEVICE_ROUTE_SCOPE} from "../lib/health-device-admin.mjs";
 import crypto from "node:crypto";
 const SECRET=()=>process.env.HEALTH_BRIDGE_KEY;
 const REST=()=>process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,6 +16,12 @@ export function validateHealthBridge(p,now=Date.now()){
 export default async function handler(req,res){
  res.setHeader("Cache-Control","no-store");
  if(req.method!=="POST")return res.status(405).json({success:false,message:"Method not allowed"});
+ if(String(req.query?.scope||"")===DEVICE_ROUTE_SCOPE){
+   const raw=typeof req.body==="string"?req.body:JSON.stringify(req.body||{});
+   const result=await processDeviceAdmin(raw,req.headers["x-health-signature"]);
+   res.setHeader("X-Health-Endpoint","health-kiosk-admin-device-v1");
+   return res.status(result.status).json(result.body);
+ }
  if(!REST() || !KEY() || !SECRET())return res.status(503).json({success:false,message:"Bridge not configured"});
  const raw=typeof req.body==="string"?req.body:JSON.stringify(req.body||{});
  const sig=req.headers["x-health-signature"];

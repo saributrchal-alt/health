@@ -44,6 +44,28 @@ public final class HealthDeviceProof {
       }
     }finally{conn.disconnect();}
   }
+  public static String makeClaim(String deviceId,String cardId) throws Exception {
+    JSONObject challenge=post(new JSONObject().put("action","challenge").put("device_id",deviceId));
+    String id=challenge.getString("challenge_id");
+    String signature=DeviceIdentity.signChallenge(deviceId,id);
+    JSONObject payload=new JSONObject().put("device_id",deviceId).put("challenge_id",id)
+      .put("signature",signature).put("citizen_id",cardId);
+    HttpURLConnection c=(HttpURLConnection)new URL("https://health.nathoeng.com/api/kiosk/card-claim").openConnection();
+    try{
+      c.setRequestMethod("POST");c.setConnectTimeout(7000);c.setReadTimeout(7000);
+      c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");
+      c.setInstanceFollowRedirects(false);
+      try(OutputStream out=c.getOutputStream()){out.write(payload.toString().getBytes(StandardCharsets.UTF_8));}
+      if(c.getResponseCode()!=200)throw new IOException("ขอรหัสไม่สำเร็จ");
+      try(InputStream in=c.getInputStream()){
+        byte[] data=in.readNBytes(1024);
+        JSONObject answer=new JSONObject(new String(data,StandardCharsets.UTF_8));
+        String code=answer.getString("code");
+        if(!answer.optBoolean("success")||!code.matches("[0-9]{9}"))throw new IOException("ผลตอบกลับไม่ถูกต้อง");
+        return code;
+      }
+    }finally{c.disconnect();}
+  }
   public static boolean verify(String deviceId) throws Exception {
     java.util.UUID.fromString(deviceId);
     // Ensure private key still exists on the approved, current app installation.

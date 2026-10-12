@@ -1,4 +1,4 @@
-name: Health public route diagnostic (no user data) # after Node 22 redeploy
+name: Health public route diagnostic (no user data) # verify ERR_REQUIRE_ESM repair
 on:
   push:
     branches: [main]
@@ -56,3 +56,21 @@ jobs:
           echo '=== local application startup errors ==='
           tail -n 45 /tmp/next-runtime.log
           kill "$(cat /tmp/next-runtime.pid)" || true
+
+  assert-public-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify live functions start (no credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for check in '/api/runtime-ok|200' '/api/kiosk/admin-device|405' '/api/member-bridge|405' '/api/kiosk/device-proof|405'; do
+            path="${check%%|*}"
+            expected="${check##*|}"
+            status=$(curl --connect-timeout 10 --max-time 20 -sS -o /tmp/response -w '%{http_code}' "https://health.nathoeng.com$path")
+            echo "$path HTTP $status (expected $expected)"
+            head -c 200 /tmp/response; echo
+            test "$status" = "$expected"
+          done

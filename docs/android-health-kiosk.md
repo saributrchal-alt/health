@@ -29,3 +29,17 @@ Status: **development only**. Do not enter real patient data, distribute an APK 
 
 ## Bluetooth device compatibility
 Prefer Blood Pressure Service 0x1810 (Blood Pressure Measurement 0x2A35) for cuffs and Heart Rate Service 0x180D (Heart Rate Measurement 0x2A37) for supported pulse monitors. The precise model must be tested: some products use proprietary protocols or do not support live broadcast. USB host (OTG) and BLE can run on the same Android phone if hardware supports both.
+
+
+## Android 0.1 hardware-only debug pilot — 12 Oct 2026
+Built successfully in GitHub Actions: https://github.com/saributrchal-alt/health/actions/runs/38273251332
+
+- `android/` is a **separate** Android package `com.nathoeng.healthpilot`, not an update to the Temple Saributr reader app.
+- Reuses Temple's CCID, ThaiCard, UsbCardProbe source.
+- Reads an inserted card locally via USB-C OTG, displays name + only last four digits, does **not** transmit card identity or register/log in a member.
+- Local SYS/DIA/Pulse input validation and Bluetooth LE standard services 0x1810/0x2A35, 0x180D/0x2A37. The Bluetooth parser unit tests and debug APK assembly pass in CI.
+- BLE compatibility with OMRON HEM-7183T1-C remains **unverified**. The Bluetooth listener never saves values; users must verify displayed numbers.
+- On app background or USB-device detach clears the displayed identity/values. Card-withdrawal detection at the reader *without USB detach* is NOT yet implemented; therefore **do not use as an authentication application**.
+- Does not ask for or store a PIN. No session, consent, medical-record read or upload exists in this APK.
+- For testing: install only on a dedicated Android test device, allow USB permission, test reader with cardholder consent, enter mock 120/80/72 and tap "ตรวจค่าที่กรอก", and if available test Bluetooth using only a supported confirmed device. Do not input genuine health readings.
+- This is a DEBUG-signed hardware test build. Do not distribute to patients or enable unattended self-service.

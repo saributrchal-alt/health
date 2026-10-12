@@ -1,4 +1,4 @@
-name: Android Health Pilot (hardware test only)
+name: Android Health Pilot (hardware test only) # signed build after secrets configured
 on:
   workflow_dispatch:
   push:

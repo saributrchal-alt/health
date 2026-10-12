@@ -1,0 +1,1 @@
+export const metadata={title:"Nathoeng Health | สุขภาพชุมชน",description:"ระบบบันทึกความดันโลหิตชุมชนวัดพุทธอุทยานนาเทิง"};export default function Layout({children}){return <html lang="th"><body style={{margin:0,fontFamily:"Arial, sans-serif",background:"#f5f7f5",color:"#20342d"}}>{children}</body></html>}

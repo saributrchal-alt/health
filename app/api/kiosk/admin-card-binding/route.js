@@ -9,23 +9,25 @@ export async function POST(req){
  const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
  if(!p||!uuid.test(p.event_id||"")||!uuid.test(p.member_id||"")||!uuid.test(p.actor_id||"")||
    !["prepare","approve","revoke"].includes(p.action)||typeof p.citizen_id!=="string"||
-   !/^[0-9]{13}$/.test(p.citizen_id)||typeof p.confirm_consent!=="boolean"||
+   (p.action!=="revoke"&&!/^[0-9]{13}$/.test(p.citizen_id))||typeof p.confirm_consent!=="boolean"||
    typeof p.issued_at!=="string"||Math.abs(Date.now()-Date.parse(p.issued_at))>300000)
    return reply(400,{success:false,message:"Invalid request"});
  const secret=process.env.HEALTH_CARD_HMAC_SECRET;
  const supa=process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/,"");
  const svc=process.env.SUPABASE_SECRET_KEY;
  if(!secret||secret.length<32||!supa||!svc)return reply(503,{success:false,message:"Card enrollment not configured"});
- const hash=lookupCard(p.citizen_id,secret);
+ const hash=p.action==="revoke"?null:lookupCard(p.citizen_id,secret);
  const headers={"apikey":svc,...(svc.startsWith("sb_secret_")?{}:{"Authorization":"Bearer "+svc}),"Content-Type":"application/json"};
  try{
   // Never allow a signed command to bind one person's card to another member record.
+  if(p.action!=="revoke"){
   const memberRes=await fetch(supa+"/rest/v1/members?id=eq."+encodeURIComponent(p.member_id)+
     "&select=id,tax_id,id_card_verified_at,membership_status&limit=1",{headers,cache:"no-store",signal:AbortSignal.timeout(8000)});
   if(!memberRes.ok)return reply(503,{success:false,message:"Member verification unavailable"});
   const members=await memberRes.json(),m=members?.[0];
   if(!m||m.membership_status!=="active"||!m.id_card_verified_at||m.tax_id!==p.citizen_id)
     return reply(409,{success:false,message:"Member identity verification failed"});
+  }
   const res=await fetch(supa+"/rest/v1/rpc/health_admin_card_binding",{
    method:"POST",headers,cache:"no-store",signal:AbortSignal.timeout(8000),
    body:JSON.stringify({p_event_id:p.event_id,p_member_id:p.member_id,p_actor_id:p.actor_id,p_action:p.action,

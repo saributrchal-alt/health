@@ -66,6 +66,39 @@ public final class HealthDeviceProof {
       }
     }finally{c.disconnect();}
   }
+  /** Pilot PIN check with a new chip-bound challenge; creates no session. */
+  public static boolean pilotPin(String deviceId,String cardId,String pin,boolean enroll)throws Exception{
+    if(!pin.matches("[0-9]{6}"))throw new IOException("PIN ต้องมี 6 หลัก");
+    JSONObject ch=post(new JSONObject().put("action","challenge").put("device_id",deviceId));
+    String nonce=ch.getString("challenge_id");
+    String proof=DeviceIdentity.signCardPresence(deviceId,nonce,cardId);
+    JSONObject payload=new JSONObject().put("device_id",deviceId).put("challenge_id",nonce)
+      .put("citizen_id",cardId).put("signature",proof).put("pin",pin)
+      .put("action",enroll?"enroll_pin":"verify_pin");
+    HttpURLConnection c=(HttpURLConnection)new URL("https://health.nathoeng.com/api/kiosk/pilot-identity-check").openConnection();
+    try{
+      c.setRequestMethod("POST");c.setConnectTimeout(7000);c.setReadTimeout(7000);
+      c.setDoOutput(true);c.setInstanceFollowRedirects(false);c.setUseCaches(false);
+      c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Cache-Control","no-store");
+      byte[] data=payload.toString().getBytes(StandardCharsets.UTF_8);
+      if(data.length>2200)throw new IOException("Invalid request");
+      try(OutputStream out=c.getOutputStream()){out.write(data);}
+      int status=c.getResponseCode();
+      if(status==409)throw new IOException("ตั้ง PIN ไว้แล้ว");
+      if(status==429)throw new IOException("PIN ถูกล็อกชั่วคราว กรุณารอ 15 นาที");
+      if(status==403)throw new IOException("PIN ไม่ผ่านหรือบัตรไม่ตรง");
+      if(status!=200)throw new IOException("เซิร์ฟเวอร์ไม่พร้อมหรือ PIN ไม่ถูกต้อง");
+      JSONObject answer;
+      try(InputStream in=c.getInputStream()){
+        byte[] response=in.readNBytes(1025);
+        if(response.length>1024)throw new IOException("Invalid response");
+        answer=new JSONObject(new String(response,StandardCharsets.UTF_8));
+      }
+      return answer.optBoolean("success",false)&&answer.optBoolean(enroll?"pin_enrolled":"pin_verified",false)
+        &&answer.optBoolean("pilot_only",false)&&!answer.optBoolean("session_issued",true)
+        &&!answer.optBoolean("medical_data_access",true);
+    }finally{c.disconnect();}
+  }
   /** Read-only pilot identity check: never opens a member/medical session. */
   public static boolean checkBoundCard(String deviceId,String citizenId)throws Exception{
     java.util.UUID.fromString(deviceId);

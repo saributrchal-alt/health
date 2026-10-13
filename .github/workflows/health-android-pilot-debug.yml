@@ -48,7 +48,7 @@ jobs:
       - name: Upload unsigned release for offline private signing
         uses: actions/upload-artifact@v4
         with:
-          name: health-pilot-015-unsigned-release
+          name: health-pilot-017-unsigned-release
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 7

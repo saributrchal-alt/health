@@ -41,7 +41,7 @@ public final class MainActivity extends Activity {
   private final Runnable stopScan=()->stopBluetoothScan();
   private byte[] cardSalt,cardTag;
   private UsbDevice cardReader;
-  private android.app.AlertDialog claimDialog;
+  private android.app.AlertDialog claimDialog, pinDialog;
   private boolean cardCheckRunning=false;
   private final Runnable cardCheck=()->verifySameCard();
   private void stopCardCheck(){
@@ -159,6 +159,10 @@ public final class MainActivity extends Activity {
     claim.setOnClickListener(v->createHealthCardClaim());root.addView(claim);
     Button checkMember=button("1.2 ตรวจสอบบัตรที่ผูก Health แล้ว (ยังไม่เข้าสู่ระบบ)");
     checkMember.setOnClickListener(v->checkBoundHealthMember());root.addView(checkMember);
+    Button enrollPin=button("1.3 ตั้ง PIN 6 หลักครั้งแรก (ทดลอง)");
+    enrollPin.setOnClickListener(v->showPilotPinDialog(true));root.addView(enrollPin);
+    Button verifyPin=button("1.4 ตรวจ PIN 6 หลัก (ยังไม่เข้าสู่ระบบ)");
+    verifyPin.setOnClickListener(v->showPilotPinDialog(false));root.addView(verifyPin);
     Button clear=button("ล้างหน้าจอ / สิ้นสุดการทดลอง");clear.setOnClickListener(v->{readGeneration++;clearIdentityAndValues();disconnectBluetooth();message("ล้างข้อมูลแล้ว");});root.addView(clear);
     root.addView(text("2. ค่าความดันและชีพจร",20));
     systolic=number("SYS (ตัวบน) mmHg",root);
@@ -331,6 +335,7 @@ public final class MainActivity extends Activity {
         if(ticket!=proofGeneration||isDestroyed())return;
         proofBusy=false;
         if(cardTicket!=readGeneration)return;
+        if(text.startsWith("✓"))identity.setText("✓ บัตรนี้จับคู่สมาชิก Health แล้ว • ยังไม่เปิดข้อมูลสุขภาพ");
         message(text);
       });
     },"health-pilot-identity-check").start();
@@ -424,7 +429,7 @@ public final class MainActivity extends Activity {
     gatt=null;
   }
   @Override protected void onStop(){
-    super.onStop();proofGeneration++;proofBusy=false;readGeneration++;stopCardCheck();identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
+    super.onStop();if(pinDialog!=null){pinDialog.dismiss();pinDialog=null;}proofGeneration++;proofBusy=false;readGeneration++;stopCardCheck();identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
     clearIdentityAndValues();disconnectBluetooth();
   }
   @Override protected void onDestroy(){unregisterReceiver(usbReceiver);disconnectBluetooth();super.onDestroy();}

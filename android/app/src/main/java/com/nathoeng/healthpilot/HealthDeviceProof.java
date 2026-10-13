@@ -66,6 +66,44 @@ public final class HealthDeviceProof {
       }
     }finally{c.disconnect();}
   }
+  /** Read-only pilot identity check: never opens a member/medical session. */
+  public static boolean checkBoundCard(String deviceId,String citizenId)throws Exception{
+    java.util.UUID.fromString(deviceId);
+    if(citizenId==null||!citizenId.matches("[0-9]{13}"))throw new IOException("อ่านข้อมูลบัตรไม่ถูกต้อง");
+    JSONObject challenge=post(new JSONObject().put("action","challenge").put("device_id",deviceId));
+    if(!challenge.optBoolean("success",false))throw new IOException("ไม่ได้รับคำท้าทายใหม่");
+    String id=challenge.getString("challenge_id");
+    java.util.UUID.fromString(id);
+    String signed=DeviceIdentity.signCardPresence(deviceId,id,citizenId);
+    JSONObject payload=new JSONObject().put("device_id",deviceId).put("challenge_id",id)
+      .put("signature",signed).put("citizen_id",citizenId);
+    HttpURLConnection c=(HttpURLConnection)new URL("https://health.nathoeng.com/api/kiosk/pilot-identity-check").openConnection();
+    try{
+      c.setRequestMethod("POST");c.setConnectTimeout(7000);c.setReadTimeout(7000);
+      c.setDoOutput(true);c.setUseCaches(false);c.setInstanceFollowRedirects(false);
+      c.setRequestProperty("Content-Type","application/json; charset=utf-8");
+      c.setRequestProperty("Accept","application/json");c.setRequestProperty("Cache-Control","no-store");
+      byte[] body=payload.toString().getBytes(StandardCharsets.UTF_8);
+      if(body.length>2000)throw new IOException("ข้อมูลคำขอใหญ่เกินไป");
+      try(OutputStream out=c.getOutputStream()){out.write(body);}
+      int status=c.getResponseCode();
+      if(status==403)throw new IOException("ยังไม่พบสมาชิกที่ผูกบัตรและได้รับสิทธิ์ Health หรือบัตรไม่ตรง");
+      if(status!=200)throw new IOException("ตรวจสมาชิกไม่สำเร็จ (HTTP "+status+")");
+      if(c.getContentType()==null||!c.getContentType().toLowerCase(java.util.Locale.ROOT).contains("application/json"))
+        throw new IOException("Server ส่งผลผิดรูปแบบ");
+      JSONObject result;
+      try(InputStream in=c.getInputStream()){
+        byte[] bytes=in.readNBytes(1025);
+        if(bytes.length>1024)throw new IOException("ผลตอบกลับใหญ่เกินไป");
+        result=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
+      }
+      if(!result.optBoolean("success",false)||!result.optBoolean("device_verified",false)||
+        !result.optBoolean("member_verified",false)||result.optBoolean("session_issued",true)||
+        result.optBoolean("medical_data_access",true)||!result.optBoolean("pilot_only",false))
+        throw new IOException("Server ส่งผลการยืนยันตัวตนไม่ถูกต้อง");
+      return true;
+    }finally{c.disconnect();}
+  }
   public static boolean verify(String deviceId) throws Exception {
     java.util.UUID.fromString(deviceId);
     // Ensure private key still exists on the approved, current app installation.

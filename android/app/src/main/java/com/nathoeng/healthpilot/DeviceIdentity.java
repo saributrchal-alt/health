@@ -22,6 +22,18 @@ public final class DeviceIdentity {
   public static String publicKeyBase64()throws Exception{
     ensureKey();return Base64.getEncoder().encodeToString(store().getCertificate(KEY_ALIAS).getPublicKey().getEncoded());
   }
+  /** A separate signature domain for the actual card ID just re-read from the chip.
+   * Never display, persist or log the ID; it is sent only to the Health server via TLS.
+   */
+  public static String signCardPresence(String deviceId,String challengeId,String citizenId)throws Exception{
+    ensureKey();UUID.fromString(deviceId);UUID.fromString(challengeId);
+    if(citizenId==null||!citizenId.matches("[0-9]{13}"))throw new IllegalArgumentException("Invalid chip");
+    String value="nathoeng-health-card-presence-v1:"+deviceId+":"+challengeId+":"+citizenId;
+    Signature s=Signature.getInstance("SHA256withECDSA");
+    s.initSign((PrivateKey)store().getKey(KEY_ALIAS,null));
+    s.update(value.getBytes(StandardCharsets.UTF_8));
+    return Base64.getEncoder().encodeToString(s.sign());
+  }
   public static String signChallenge(String deviceId,String challengeId)throws Exception{
     ensureKey();UUID.fromString(deviceId);UUID.fromString(challengeId);
     String text="nathoeng-health-kiosk-v1:"+deviceId+":"+challengeId;

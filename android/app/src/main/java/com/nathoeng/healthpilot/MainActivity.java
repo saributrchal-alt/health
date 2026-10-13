@@ -157,6 +157,8 @@ public final class MainActivity extends Activity {
     Button read=button("1. อ่านบัตรประชาชนผ่าน Type-C OTG");read.setOnClickListener(v->requestCardRead());root.addView(read);
     Button claim=button("1.1 สร้างรหัสยืนยันบัตร Health (ใช้ภายใน 3 นาที)");
     claim.setOnClickListener(v->createHealthCardClaim());root.addView(claim);
+    Button checkMember=button("1.2 ตรวจสอบบัตรที่ผูก Health แล้ว (ยังไม่เข้าสู่ระบบ)");
+    checkMember.setOnClickListener(v->checkBoundHealthMember());root.addView(checkMember);
     Button clear=button("ล้างหน้าจอ / สิ้นสุดการทดลอง");clear.setOnClickListener(v->{readGeneration++;clearIdentityAndValues();disconnectBluetooth();message("ล้างข้อมูลแล้ว");});root.addView(clear);
     root.addView(text("2. ค่าความดันและชีพจร",20));
     systolic=number("SYS (ตัวบน) mmHg",root);
@@ -300,6 +302,38 @@ public final class MainActivity extends Activity {
         },180000);
       });
     },"health-card-claim").start();
+  }
+  /** Proof only. Do not reveal the member name, open a session or transmit readings. */
+  private void checkBoundHealthMember(){
+    if(cardReader==null||cardTag==null||cardSalt==null||reading||proofBusy){
+      message("โปรดอ่านบัตรที่ผูก Health แล้วและเสียบบัตรเดิมค้างไว้");return;
+    }
+    final UsbDevice reader=cardReader;
+    final byte[] expected=cardTag.clone(),salt=cardSalt.clone();
+    final String deviceId=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+    if(deviceId==null){Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);message("ยังไม่ได้ลงทะเบียนเครื่อง");return;}
+    proofBusy=true;
+    final int ticket=++proofGeneration, cardTicket=readGeneration;
+    message("กำลังอ่านชิปใบเดิมซ้ำและตรวจสิทธิ์สมาชิก Health...");
+    new Thread(()->{
+      String result;
+      try{
+        if(!usb.hasPermission(reader))throw new IllegalStateException("USB permission missing");
+        String freshId=UsbCardProbe.readCitizenId(usb,reader);
+        if(!MessageDigest.isEqual(expected,cardTag(freshId,salt)))throw new IllegalStateException("Card changed");
+        if(!HealthDeviceProof.checkBoundCard(deviceId,freshId))throw new IllegalStateException("Not verified");
+        result="✓ ยืนยันการจับคู่สมาชิก Health ผ่านแล้ว • โหมดทดลองเท่านั้น ยังไม่เข้าสู่ระบบหรือเปิดข้อมูลสุขภาพ";
+      }catch(Exception e){
+        result="✕ ยืนยันบัตรไม่สำเร็จ: "+(e instanceof java.io.IOException?e.getMessage():"บัตรไม่ตรงหรืออ่านชิปไม่ได้");
+      }finally{Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);}
+      final String text=result;
+      runOnUiThread(()->{
+        if(ticket!=proofGeneration||isDestroyed())return;
+        proofBusy=false;
+        if(cardTicket!=readGeneration)return;
+        message(text);
+      });
+    },"health-pilot-identity-check").start();
   }
   private void previewValues(){
     try{

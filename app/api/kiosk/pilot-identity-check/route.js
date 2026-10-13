@@ -1,5 +1,6 @@
 import {validUuid,resultCardPresenceProof,pilotIdentityEligible} from "../../../../lib/kiosk-proof.mjs";
 import {lookupCard} from "../../../../lib/card-binding.mjs";
+import {isAcceptablePin,createPinVerifier,checkPinVerifier} from "../../../../lib/pin-verifier.mjs";
 export const runtime="nodejs";
 const reply=(status,body)=>Response.json(body,{status,headers:{"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
 const notVerified=()=>reply(403,{success:false,device_verified:false,member_verified:false,session_issued:false});
@@ -58,6 +59,41 @@ export async function POST(req){
       "&select=id,membership_status,id_card_verified_at,tax_id&limit=1")
    ]);
    if(!pilotIdentityEligible(bindings[0],hm?.[0],tm?.[0],p.citizen_id))return notVerified();
+   // A physical chip + registered device are required before each PIN operation.
+   // PINs are accepted only for pilot verification: never create a login session.
+   const action=p.action||"identity";
+   if(!["identity","enroll_pin","verify_pin"].includes(action))
+     return reply(400,{success:false,session_issued:false});
+   if(action==="enroll_pin"){
+     if(!isAcceptablePin(p.pin))return reply(400,{success:false,message:"Weak or invalid six-digit PIN",session_issued:false});
+     const verifier=await createPinVerifier(p.pin);
+     const response=await fetch(c.url+"/rest/v1/health_kiosk_credentials",{
+       method:"POST",cache:"no-store",signal:AbortSignal.timeout(7000),
+       headers:{...c.headers,"Prefer":"return=minimal"},
+       body:JSON.stringify({member_id:memberId,pin_salt:verifier.salt,pin_hash:verifier.hash})
+     });
+     if(response.status===409)return reply(409,{success:false,message:"PIN is already configured",session_issued:false});
+     if(!response.ok)throw Error("PIN setup rejected by database");
+     return reply(200,{success:true,pin_enrolled:true,session_issued:false,medical_data_access:false,pilot_only:true});
+   }
+   if(action==="verify_pin"){
+     if(typeof p.pin!=="string"||!/^[0-9]{6}$/.test(p.pin))
+       return reply(400,{success:false,session_issued:false});
+     // Atomic attempt reservation enforces a 5-guess/15-minute lock across all devices.
+     const attempt=await db(c,"rpc/health_reserve_pin_attempt",{
+       method:"POST",body:JSON.stringify({p_member_id:memberId})
+     });
+     if(attempt?.allowed!==true)return reply(429,{success:false,message:"PIN unavailable or locked",session_issued:false});
+     const ok=await checkPinVerifier(p.pin,attempt.salt,attempt.hash);
+     if(!ok)return reply(403,{success:false,message:"PIN not verified",session_issued:false});
+     const cleared=await db(c,"rpc/health_reset_pin_attempts",{
+       method:"POST",body:JSON.stringify({p_member_id:memberId,p_expected_hash:attempt.hash})
+     });
+     if(cleared!==true)return notVerified();
+     return reply(200,{success:true,pin_verified:true,device_verified:true,member_verified:true,
+       session_issued:false,medical_data_access:false,pilot_only:true});
+   }
+
    // This is only a test status, deliberately NOT a Health account sign-in.
    return reply(200,{success:true,device_verified:true,member_verified:true,
      session_issued:false,medical_data_access:false,pilot_only:true});

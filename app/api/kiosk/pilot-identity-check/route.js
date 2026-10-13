@@ -55,9 +55,9 @@ export async function POST(req){
     db(c,"health_members?member_id=eq."+encodeURIComponent(memberId)+
       "&select=member_id,is_active,kiosk_enabled&limit=1"),
     db(c,"members?id=eq."+encodeURIComponent(memberId)+
-      "&select=id,membership_status,id_card_verified_at&limit=1")
+      "&select=id,membership_status,id_card_verified_at,tax_id&limit=1")
    ]);
-   if(!pilotIdentityEligible(bindings[0],hm?.[0],tm?.[0]))return notVerified();
+   if(!pilotIdentityEligible(bindings[0],hm?.[0],tm?.[0],p.citizen_id))return notVerified();
    // This is only a test status, deliberately NOT a Health account sign-in.
    return reply(200,{success:true,device_verified:true,member_verified:true,
      session_issued:false,medical_data_access:false,pilot_only:true});

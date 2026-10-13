@@ -282,8 +282,10 @@ public final class MainActivity extends Activity {
       finally{Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);}
       final String result=code,error=err;
       runOnUiThread(()->{
-        if(ticket!=proofGeneration||cardTicket!=readGeneration||isDestroyed())return;
+        if(ticket!=proofGeneration||isDestroyed())return;
+        // A removed or changed card invalidates the claim, but must not leave the UI locked.
         proofBusy=false;
+        if(cardTicket!=readGeneration)return;
         if(error!=null){message(error);return;}
         message("ได้รับรหัสยืนยันแล้ว (หมดอายุใน 3 นาที)");
         final TextView codeText=text(result,27);

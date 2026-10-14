@@ -41,7 +41,7 @@ public final class MainActivity extends Activity {
   private final Runnable stopScan=()->stopBluetoothScan();
   private byte[] cardSalt,cardTag;
   private UsbDevice cardReader;
-  private android.app.AlertDialog claimDialog;
+  private android.app.AlertDialog claimDialog, pinDialog;
   private boolean cardCheckRunning=false;
   private final Runnable cardCheck=()->verifySameCard();
   private void stopCardCheck(){
@@ -159,6 +159,10 @@ public final class MainActivity extends Activity {
     claim.setOnClickListener(v->createHealthCardClaim());root.addView(claim);
     Button checkMember=button("1.2 ตรวจสอบบัตรที่ผูก Health แล้ว (ยังไม่เข้าสู่ระบบ)");
     checkMember.setOnClickListener(v->checkBoundHealthMember());root.addView(checkMember);
+    Button enrollPin=button("1.3 ตั้ง PIN 6 หลักครั้งแรก (ทดลอง)");
+    enrollPin.setOnClickListener(v->showPilotPinDialog(true));root.addView(enrollPin);
+    Button verifyPin=button("1.4 ตรวจ PIN 6 หลัก (ยังไม่เข้าสู่ระบบ)");
+    verifyPin.setOnClickListener(v->showPilotPinDialog(false));root.addView(verifyPin);
     Button clear=button("ล้างหน้าจอ / สิ้นสุดการทดลอง");clear.setOnClickListener(v->{readGeneration++;clearIdentityAndValues();disconnectBluetooth();message("ล้างข้อมูลแล้ว");});root.addView(clear);
     root.addView(text("2. ค่าความดันและชีพจร",20));
     systolic=number("SYS (ตัวบน) mmHg",root);
@@ -331,9 +335,77 @@ public final class MainActivity extends Activity {
         if(ticket!=proofGeneration||isDestroyed())return;
         proofBusy=false;
         if(cardTicket!=readGeneration)return;
+        if(text.startsWith("✓"))identity.setText("✓ บัตรนี้จับคู่สมาชิก Health แล้ว • ยังไม่เปิดข้อมูลสุขภาพ");
         message(text);
       });
     },"health-pilot-identity-check").start();
+  }
+  private void showPilotPinDialog(boolean enroll){
+    if(cardReader==null||cardTag==null||cardSalt==null||reading||proofBusy){
+      message("โปรดอ่านบัตร Health และเสียบบัตรเดิมค้างไว้ก่อนตั้งหรือตรวจ PIN");return;
+    }
+    LinearLayout layout=new LinearLayout(this);
+    layout.setPadding(28,20,28,12);layout.setOrientation(LinearLayout.VERTICAL);
+    TextView help=text(enroll?"ตั้ง PIN 6 หลักที่ไม่เดาง่าย และยืนยันอีกครั้ง":"กรอก PIN 6 หลักของบัตรที่ผูก Health แล้ว",16);
+    layout.addView(help);
+    EditText pin=new EditText(this);
+    pin.setHint("PIN 6 หลัก");pin.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+    pin.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});
+    pin.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);layout.addView(pin);
+    EditText confirm=null;
+    if(enroll){
+      confirm=new EditText(this);confirm.setHint("ยืนยัน PIN อีกครั้ง");
+      confirm.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+      confirm.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});
+      confirm.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);layout.addView(confirm);
+    }
+    final EditText again=confirm;
+    pinDialog=new android.app.AlertDialog.Builder(this).setTitle(enroll?"ตั้ง PIN ทดลองครั้งแรก":"ทดลองตรวจ PIN")
+      .setView(layout).setPositiveButton(enroll?"ตั้ง PIN":"ตรวจ PIN",null)
+      .setNegativeButton("ยกเลิก",(d,w)->{}).create();
+    getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+    pinDialog.setOnDismissListener(d->{
+      pin.setText("");if(again!=null)again.setText("");
+      getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+      pinDialog=null;
+    });
+    pinDialog.setOnShowListener(d->pinDialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+      String value=pin.getText().toString();
+      if(!value.matches("[0-9]{6}")){pin.setError("กรุณากรอก PIN 6 หลัก");return;}
+      if(enroll&&!value.equals(again.getText().toString())){again.setError("PIN ไม่ตรงกัน");return;}
+      pinDialog.dismiss();
+      runPilotPin(enroll,value);
+    }));
+    pinDialog.show();
+  }
+  private void runPilotPin(boolean enroll,String pin){
+    if(cardReader==null||cardTag==null||cardSalt==null||proofBusy){message("อ่านบัตรก่อนทดสอบ PIN");return;}
+    final UsbDevice reader=cardReader;
+    final byte[] expected=cardTag.clone(),salt=cardSalt.clone();
+    final String deviceId=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+    if(deviceId==null){Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);message("โปรดลงทะเบียนเครื่องก่อน");return;}
+    proofBusy=true;final int ticket=++proofGeneration,cardTicket=readGeneration;
+    message(enroll?"กำลังตั้ง PIN ทดลอง...":"กำลังตรวจ PIN ทดลอง...");
+    new Thread(()->{
+      String result;
+      try{
+        if(!usb.hasPermission(reader))throw new IllegalStateException("USB");
+        String freshId=UsbCardProbe.readCitizenId(usb,reader);
+        if(!MessageDigest.isEqual(expected,cardTag(freshId,salt)))throw new IllegalStateException("card");
+        boolean ok=HealthDeviceProof.pilotPin(deviceId,freshId,pin,enroll);
+        if(!ok)throw new java.io.IOException("ผลยืนยันจากเซิร์ฟเวอร์ไม่ผ่าน");
+        result=enroll?"✓ ตั้ง PIN ทดลองสำเร็จ • ยังไม่เปิด Session":"✓ ตรวจ PIN ทดลองผ่าน • ยังไม่เปิด Session หรือข้อมูลสุขภาพ";
+      }catch(Exception e){
+        result="✕ ตรวจ PIN ไม่สำเร็จ: "+(e instanceof java.io.IOException?e.getMessage():"บัตรไม่ตรงหรืออ่านชิปไม่ได้");
+      }finally{Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);}
+      final String output=result;
+      runOnUiThread(()->{
+        if(ticket!=proofGeneration||isDestroyed())return;
+        proofBusy=false;
+        if(cardTicket!=readGeneration)return;
+        message(output);
+      });
+    },"health-pin-pilot").start();
   }
   private void previewValues(){
     try{
@@ -424,7 +496,7 @@ public final class MainActivity extends Activity {
     gatt=null;
   }
   @Override protected void onStop(){
-    super.onStop();proofGeneration++;proofBusy=false;readGeneration++;stopCardCheck();identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
+    super.onStop();if(pinDialog!=null){pinDialog.dismiss();pinDialog=null;}proofGeneration++;proofBusy=false;readGeneration++;stopCardCheck();identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
     clearIdentityAndValues();disconnectBluetooth();
   }
   @Override protected void onDestroy(){unregisterReceiver(usbReceiver);disconnectBluetooth();super.onDestroy();}

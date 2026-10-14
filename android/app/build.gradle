@@ -8,8 +8,8 @@ android {
         applicationId 'com.nathoeng.healthpilot'
         minSdk 26
         targetSdk 35
-        versionCode 7
-        versionName '0.1.6-pilot'
+        versionCode 8
+        versionName '0.1.7-pilot'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     if (signingKeystore && signingPassword) {

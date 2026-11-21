@@ -29,7 +29,6 @@ public final class ScalefitActivity extends Activity {
   private TextView status, reading;
   private boolean scanning=false;
   private static final String SCALE_MAC="08:B8:D0:8A:4A:37";
-  private long lastSeen=0;
   private double lastWeight=-1;
   private int matchingFrames=0;
   private long firstMatchTime=0;
@@ -54,10 +53,8 @@ public final class ScalefitActivity extends Activity {
         ScalefitWeight.Reading weight=ScalefitWeight.fromManufacturer(data.keyAt(i),data.valueAt(i));
         if(weight==null)continue;
         long now=android.os.SystemClock.elapsedRealtime();
-        lastSeen=now;
         if(lastWeight>=0 && Math.abs(weight.kilograms-lastWeight)<=0.05 && now-firstMatchTime<=10000)matchingFrames++;
-        else{matchingFrames=1;firstMatchTime=now;}
-        lastWeight=weight.kilograms;
+        else{matchingFrames=1;firstMatchTime=now;lastWeight=weight.kilograms;}
         boolean stableCandidate=matchingFrames>=4 && now-firstMatchTime>=1500;
         reading.setText(String.format(java.util.Locale.US,
           "ค่าชั่วคราว %.2f kg\nRSSI %d dBm\nManufacturer 0x%04X\nยังไม่ยืนยันความนิ่งหรือเจ้าของข้อมูล",
@@ -84,11 +81,11 @@ public final class ScalefitActivity extends Activity {
     reading=new TextView(this);reading.setTextSize(22);reading.setText("— kg");column.addView(reading);
     Button start=new Button(this);start.setText("เริ่มอ่าน BLE (30 วินาที)");start.setOnClickListener(v->startScan());column.addView(start);
     Button stop=new Button(this);stop.setText("หยุดสแกน / ล้างค่า");stop.setOnClickListener(v->{
-      stopScan();reading.setText("— kg");lastSeen=0;lastWeight=-1;matchingFrames=0;firstMatchTime=0;status.setText("หยุดแล้ว");
+      stopScan();reading.setText("— kg");lastWeight=-1;matchingFrames=0;firstMatchTime=0;status.setText("หยุดแล้ว");
     });column.addView(stop);
     TextView warning=new TextView(this);warning.setText(
       "ทดลองอุปกรณ์เท่านั้น ไม่บันทึก ไม่ส่งข้อมูลขึ้น Health และไม่ผูกกับสมาชิก "+
-      "ค่าที่แสดงเป็นการตีความข้อมูล BLE เบื้องต้น ต้องเทียบกับเครื่องชั่งจริง");
+      "จำกัดการอ่านเฉพาะเครื่องชั่ง MAC 08:B8:D0:8A:4A:37 • การประเมินความนิ่งยังไม่ใช่การยืนยันว่าชั่งเสร็จ ต้องเทียบกับเครื่องชั่งจริง");
     column.addView(warning);
   }
   private boolean hasPermissions() {

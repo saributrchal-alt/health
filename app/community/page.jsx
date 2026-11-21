@@ -17,7 +17,7 @@ export default function Community(){
   }catch(e){setStatus(e.message)}finally{setBusy(false)}
  }
  return <main style={{maxWidth:760,margin:"30px auto",padding:20,fontFamily:"sans-serif"}}>
- <h1>🩺 สุขภาพชุมชนนาเทิง</h1><p>บันทึกความดันโลหิตและชีพจรของสมาชิก</p>
+ <h1>🩺 สุขภาพชุมชนนาเทิง</h1><p><a href="/scale">⚖️ เชื่อมต่อเครื่องชั่งน้ำหนัก Bluetooth</a></p><p>บันทึกความดันโลหิตและชีพจรของสมาชิก</p>
  <p role="status">{status}</p><a href="https://nathoeng.com/#my-dashboard">กลับ My Dashboard</a>
  <form onSubmit={save} style={{display:"grid",gap:12,marginTop:24}}>
  {[[ "systolic","ความดันตัวบน SYS"],["diastolic","ความดันตัวล่าง DIA"],["pulse","ชีพจร"]].map(([key,label])=><label key={key}>{label} <input required type="number" inputMode="numeric" value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})}/></label>)}

@@ -164,6 +164,9 @@ public final class MainActivity extends Activity {
     Button verifyPin=button("1.4 ตรวจ PIN 6 หลัก (ยังไม่เข้าสู่ระบบ)");
     verifyPin.setOnClickListener(v->showPilotPinDialog(false));root.addView(verifyPin);
     Button clear=button("ล้างหน้าจอ / สิ้นสุดการทดลอง");clear.setOnClickListener(v->{readGeneration++;clearIdentityAndValues();disconnectBluetooth();message("ล้างข้อมูลแล้ว");});root.addView(clear);
+    Button scale=button("1.4 ทดลองอ่านน้ำหนัก Scalefit ผ่าน BLE (ไม่บันทึก)");
+    scale.setOnClickListener(v->startActivity(new Intent(this,ScalefitActivity.class)));
+    root.addView(scale);
     root.addView(text("2. ค่าความดันและชีพจร",20));
     systolic=number("SYS (ตัวบน) mmHg",root);
     diastolic=number("DIA (ตัวล่าง) mmHg",root);

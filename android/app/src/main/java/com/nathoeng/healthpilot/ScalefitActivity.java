@@ -28,11 +28,14 @@ public final class ScalefitActivity extends Activity {
   private BluetoothAdapter adapter;
   private TextView status, reading;
   private boolean scanning=false;
-  private long lastSeen=0;
+  private long lastSeen=0, firstMatch=0;
+  private int matches=0, lastHundredths=-1;
+  private boolean candidate=false;
+  private Button confirm;
   private final Runnable timeout=()->{
     if(scanning) {
       stopScan();
-      status.setText("หยุดสแกนอัตโนมัติหลัง 30 วินาที");
+      status.setText(candidate ? "ค่าล่าสุด • เทียบหน้าจอเครื่องชั่งก่อนยืนยัน" : "หมดเวลาสแกน • กดเริ่มชั่งใหม่");
     }
   };
   private final ScanCallback callback=new ScanCallback() {
@@ -43,14 +46,18 @@ public final class ScalefitActivity extends Activity {
       SparseArray<byte[]> data=record.getManufacturerSpecificData();
       if(data==null)return;
       for(int i=0;i<data.size();i++) {
-        ScalefitWeight.Reading weight=ScalefitWeight.fromManufacturer(data.keyAt(i),data.valueAt(i));
+        byte[] payload=data.valueAt(i);
+        if(payload==null || payload.length!=13 || !java.util.Arrays.equals(java.util.Arrays.copyOfRange(payload,7,13),new byte[]{8,(byte)0xB8,(byte)0xD0,(byte)0x8A,0x4A,0x37}))continue;
+        ScalefitWeight.Reading weight=ScalefitWeight.fromManufacturer(data.keyAt(i),payload);
         if(weight==null)continue;
         long now=android.os.SystemClock.elapsedRealtime();
-        lastSeen=now;
-        reading.setText(String.format(java.util.Locale.US,
-          "ค่าชั่วคราว %.2f kg\nRSSI %d dBm\nManufacturer 0x%04X\nยังไม่ยืนยันความนิ่งหรือเจ้าของข้อมูล",
-          weight.kilograms,result.getRssi(),weight.companyId));
-        status.setText("พบข้อมูลน้ำหนักที่ตรงกับรูปแบบตัวอย่าง • ตรวจสอบกับหน้าจอเครื่องชั่ง");
+        int current=(int)Math.round(weight.kilograms*100);
+        if(current!=lastHundredths || now-lastSeen>3000){matches=0;firstMatch=now;}
+        matches++;lastHundredths=current;lastSeen=now;
+        candidate=matches>=3 && now-firstMatch>=1000;
+        reading.setText(String.format(java.util.Locale.US,"%.2f kg",weight.kilograms));
+        confirm.setEnabled(candidate);
+        status.setText(candidate?"น้ำหนักคงที่เบื้องต้น • โปรดตรวจสอบและยืนยัน":"กำลังอ่านน้ำหนัก…");
         break;
       }
     }
@@ -67,15 +74,16 @@ public final class ScalefitActivity extends Activity {
     column.setOrientation(LinearLayout.VERTICAL);
     column.setPadding(30,35,30,35);
     scroll.addView(column);setContentView(scroll);
-    TextView title=new TextView(this);title.setTextSize(23);title.setText("Scalefit • ทดลองอ่านน้ำหนัก");column.addView(title);
+    TextView title=new TextView(this);title.setTextSize(23);title.setText("ScaleFit • เครื่องชั่งน้ำหนัก");column.addView(title);
     status=new TextView(this);status.setTextSize(17);status.setText("ยังไม่เริ่มสแกน");column.addView(status);
-    reading=new TextView(this);reading.setTextSize(22);reading.setText("— kg");column.addView(reading);
-    Button start=new Button(this);start.setText("เริ่มอ่าน BLE (30 วินาที)");start.setOnClickListener(v->startScan());column.addView(start);
+    reading=new TextView(this);reading.setTextSize(54);reading.setText("— kg");reading.setGravity(android.view.Gravity.CENTER);reading.setPadding(0,48,0,48);column.addView(reading);
+    Button start=new Button(this);start.setText("เริ่มชั่ง / ชั่งใหม่");start.setOnClickListener(v->startScan());column.addView(start);
     Button stop=new Button(this);stop.setText("หยุดสแกน / ล้างค่า");stop.setOnClickListener(v->{
-      stopScan();reading.setText("— kg");lastSeen=0;status.setText("หยุดแล้ว");
+      stopScan();reading.setText("— kg");lastSeen=0;matches=0;candidate=false;confirm.setEnabled(false);status.setText("หยุดแล้ว");
     });column.addView(stop);
+    confirm=new Button(this);confirm.setText("ยืนยันน้ำหนัก");confirm.setEnabled(false);confirm.setOnClickListener(v->{if(!candidate)return;stopScan();confirm.setEnabled(false);status.setText("ยืนยันผลบนหน้าจอแล้ว • ไม่บันทึกข้อมูล");});column.addView(confirm);
     TextView warning=new TextView(this);warning.setText(
-      "ทดลองอุปกรณ์เท่านั้น ไม่บันทึก ไม่ส่งข้อมูลขึ้น Health และไม่ผูกกับสมาชิก "+
+      "แอปอิสระ • ไม่ต้องเข้าสู่ระบบ ไม่บันทึกหรือส่งข้อมูลออกจากมือถือ "+
       "ค่าที่แสดงเป็นการตีความข้อมูล BLE เบื้องต้น ต้องเทียบกับเครื่องชั่งจริง");
     column.addView(warning);
   }
@@ -86,7 +94,7 @@ public final class ScalefitActivity extends Activity {
     return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;
   }
   private void startScan() {
-    if(scanning)return;
+    if(scanning)stopScan();
     if(!hasPermissions()) {
       if(Build.VERSION.SDK_INT>=31)
         requestPermissions(new String[]{Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT},PERMISSION_REQUEST);
@@ -98,9 +106,10 @@ public final class ScalefitActivity extends Activity {
       scanner=adapter.getBluetoothLeScanner();
       if(scanner==null){status.setText("ไม่พบ BLE Scanner");return;}
       scanning=true;
-      reading.setText("กำลังรอเครื่องชั่ง...");
-      scanner.startScan(callback);
-      handler.postDelayed(timeout,30000);
+      lastSeen=0;matches=0;lastHundredths=-1;candidate=false;confirm.setEnabled(false);
+      reading.setText("— kg");
+      scanner.startScan(null,new android.bluetooth.le.ScanSettings.Builder().setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY).build(),callback);
+      handler.postDelayed(timeout,60000);
       status.setText("กำลังสแกน • โปรดเหยียบเครื่องชั่ง");
     }catch(SecurityException|IllegalStateException e) {
       scanning=false;status.setText("ไม่สามารถเริ่มสแกน: "+e.getClass().getSimpleName());

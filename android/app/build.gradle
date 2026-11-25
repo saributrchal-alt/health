@@ -1,32 +1,17 @@
 plugins { id 'com.android.application' }
-def signingKeystore=System.getenv('HEALTH_SIGNING_KEYSTORE_PATH')
-def signingPassword=System.getenv('HEALTH_SIGNING_PASSWORD')
 android {
     namespace 'com.nathoeng.healthpilot'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.nathoeng.healthpilot'
+        applicationId 'com.nathoeng.scalefit'
         minSdk 26
         targetSdk 35
-        versionCode 8
-        versionName '0.1.7-pilot'
+        versionCode 1
+        versionName '1.0-test'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
-    if (signingKeystore && signingPassword) {
-        signingConfigs {
-            pilotStable {
-                storeFile file(signingKeystore)
-                storePassword signingPassword
-                keyAlias 'healthpilot'
-                keyPassword signingPassword
-            }
-        }
-    }
     buildTypes {
         debug { debuggable true }
-        release {
-            minifyEnabled false
-            if (signingKeystore && signingPassword) signingConfig signingConfigs.pilotStable
-        }
+        release { minifyEnabled false }
     }
 }

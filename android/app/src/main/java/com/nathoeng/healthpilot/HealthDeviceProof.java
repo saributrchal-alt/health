@@ -14,7 +14,10 @@ public final class HealthDeviceProof {
   private static final String ENDPOINT="https://health.nathoeng.com/api/kiosk/device-proof";
   private HealthDeviceProof() {}
   private static JSONObject post(JSONObject request) throws Exception {
-    HttpURLConnection conn=(HttpURLConnection)new URL(ENDPOINT).openConnection();
+    return post(ENDPOINT,request);
+  }
+  private static JSONObject post(String endpoint,JSONObject request) throws Exception {
+    HttpURLConnection conn=(HttpURLConnection)new URL(endpoint).openConnection();
     try {
       conn.setRequestMethod("POST");
       conn.setConnectTimeout(7000);
@@ -43,6 +46,18 @@ public final class HealthDeviceProof {
         return new JSONObject(out.toString("UTF-8"));
       }
     }finally{conn.disconnect();}
+  }
+  interface CardReader { String read() throws Exception; }
+
+  static boolean saveWeight(String deviceId,String readingId,int hundredths,CardReader readCard) throws Exception {
+    JSONObject challenge=post(new JSONObject().put("action","challenge").put("device_id",deviceId));
+    String nonce=challenge.getString("challenge_id");
+    String cardId=readCard.read();
+    String signature=DeviceIdentity.signWeight(deviceId,nonce,cardId,readingId,hundredths);
+    JSONObject proof=new JSONObject().put("device_id",deviceId).put("challenge_id",nonce)
+      .put("signature",signature).put("citizen_id",cardId)
+      .put("reading_id",readingId).put("weight_hundredths",hundredths);
+    return post("https://health.nathoeng.com/api/kiosk/weight",proof).optBoolean("saved");
   }
   public static String makeClaim(String deviceId,String cardId) throws Exception {
     JSONObject challenge=post(new JSONObject().put("action","challenge").put("device_id",deviceId));
@@ -110,32 +125,12 @@ public final class HealthDeviceProof {
     String signed=DeviceIdentity.signCardPresence(deviceId,id,citizenId);
     JSONObject payload=new JSONObject().put("device_id",deviceId).put("challenge_id",id)
       .put("signature",signed).put("citizen_id",citizenId);
-    HttpURLConnection c=(HttpURLConnection)new URL("https://health.nathoeng.com/api/kiosk/pilot-identity-check").openConnection();
-    try{
-      c.setRequestMethod("POST");c.setConnectTimeout(7000);c.setReadTimeout(7000);
-      c.setDoOutput(true);c.setUseCaches(false);c.setInstanceFollowRedirects(false);
-      c.setRequestProperty("Content-Type","application/json; charset=utf-8");
-      c.setRequestProperty("Accept","application/json");c.setRequestProperty("Cache-Control","no-store");
-      byte[] body=payload.toString().getBytes(StandardCharsets.UTF_8);
-      if(body.length>2000)throw new IOException("ข้อมูลคำขอใหญ่เกินไป");
-      try(OutputStream out=c.getOutputStream()){out.write(body);}
-      int status=c.getResponseCode();
-      if(status==403)throw new IOException("ยังไม่พบสมาชิกที่ผูกบัตรและได้รับสิทธิ์ Health หรือบัตรไม่ตรง");
-      if(status!=200)throw new IOException("ตรวจสมาชิกไม่สำเร็จ (HTTP "+status+")");
-      if(c.getContentType()==null||!c.getContentType().toLowerCase(java.util.Locale.ROOT).contains("application/json"))
-        throw new IOException("Server ส่งผลผิดรูปแบบ");
-      JSONObject result;
-      try(InputStream in=c.getInputStream()){
-        byte[] bytes=in.readNBytes(1025);
-        if(bytes.length>1024)throw new IOException("ผลตอบกลับใหญ่เกินไป");
-        result=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
-      }
-      if(!result.optBoolean("success",false)||!result.optBoolean("device_verified",false)||
-        !result.optBoolean("member_verified",false)||result.optBoolean("session_issued",true)||
-        result.optBoolean("medical_data_access",true)||!result.optBoolean("pilot_only",false))
-        throw new IOException("Server ส่งผลการยืนยันตัวตนไม่ถูกต้อง");
-      return true;
-    }finally{c.disconnect();}
+    JSONObject result=post("https://health.nathoeng.com/api/kiosk/pilot-identity-check",payload);
+    if(!result.optBoolean("success",false)||!result.optBoolean("device_verified",false)||
+      !result.optBoolean("member_verified",false)||result.optBoolean("session_issued",true)||
+      result.optBoolean("medical_data_access",true)||!result.optBoolean("pilot_only",false))
+      throw new IOException("Server ส่งผลการยืนยันตัวตนไม่ถูกต้อง");
+    return true;
   }
   public static boolean verify(String deviceId) throws Exception {
     java.util.UUID.fromString(deviceId);

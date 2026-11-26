@@ -1,22 +1,10 @@
+import {config,db} from "../../../../lib/kiosk-db.mjs";
 import {validUuid,resultCardPresenceProof,pilotIdentityEligible} from "../../../../lib/kiosk-proof.mjs";
 import {lookupCard} from "../../../../lib/card-binding.mjs";
 import {isAcceptablePin,createPinVerifier,checkPinVerifier} from "../../../../lib/pin-verifier.mjs";
 export const runtime="nodejs";
 const reply=(status,body)=>Response.json(body,{status,headers:{"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
 const notVerified=()=>reply(403,{success:false,device_verified:false,member_verified:false,session_issued:false});
-function config(){
- const secret=process.env.HEALTH_CARD_HMAC_SECRET;
- const url=process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/,"");
- const key=process.env.SUPABASE_SECRET_KEY;
- if(!secret||secret.length<32||!url||!key)throw Error("Pilot identity not configured");
- return {secret,url,headers:{"apikey":key,...(key.startsWith("sb_secret_")?{}:{"Authorization":"Bearer "+key}),"Content-Type":"application/json"}};
-}
-async function db(c,path,init={}){
- const r=await fetch(c.url+"/rest/v1/"+path,{...init,cache:"no-store",signal:AbortSignal.timeout(7000),
-   headers:{...c.headers,...init.headers}});
- if(!r.ok)throw Error("Pilot identity database request failed ("+r.status+")");
- return r.json();
-}
 /** Pilot-only demonstration: proves an approved member-card pairing exists.
  * No PIN enrollment, login token, medical access or session creation.
  * Never return member identifiers or card data to the caller.

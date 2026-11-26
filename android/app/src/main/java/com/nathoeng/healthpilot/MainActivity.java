@@ -99,9 +99,412 @@ public final class MainActivity extends Activity {
         else message("ยังไม่ได้อนุญาตการเชื่อมต่อ USB");
       }else if(UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)){
         readGeneration++;clearIdentityAndValues();
-        message("ถอดเครื่องอ่าน USB แล้ว ล้างข้อมูลบนหน้าจอแล้…14149 tokens truncated…nDestroy(){
-    unregisterReceiver(detached);
-    io.shutdownNow();
-    super.onDestroy();
+        message("ถอดเครื่องอ่าน USB แล้ว ล้างข้อมูลบนหน้าจอแล้ว");
+      }else if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)){message("พบเครื่องอ่าน โปรดกดอ่านบัตร");}
+    }
+  };
+  private final ScanCallback scanCallback=new ScanCallback(){
+    @Override public void onScanResult(int type,ScanResult result){
+      runOnUiThread(()->{
+        BluetoothDevice device=result.getDevice();
+        if(device==null||!seen.add(device.getAddress()))return;
+        String name=null;try{name=device.getName();}catch(SecurityException ignored){}
+        if(name==null||name.trim().isEmpty())name="BLE "+device.getAddress();
+        final String label=name;
+        Button button=button("เชื่อม Bluetooth: "+label);
+        button.setOnClickListener(v->connectBluetooth(device,label));
+        devices.addView(button);
+      });
+    }
+    @Override public void onScanFailed(int error){runOnUiThread(()->{scanning=false;message("ค้นหา Bluetooth ไม่สำเร็จ รหัส "+error);});}
+  };
+
+  @Override public void onCreate(Bundle saved){
+    super.onCreate(saved);
+    usb=(UsbManager)getSystemService(USB_SERVICE);
+    BluetoothManager bm=(BluetoothManager)getSystemService(BLUETOOTH_SERVICE);
+    bluetooth=bm==null?null:bm.getAdapter();
+    ScrollView scroll=new ScrollView(this);
+    LinearLayout root=new LinearLayout(this);
+    root.setOrientation(LinearLayout.VERTICAL);
+    root.setPadding(28,35,28,35);
+    scroll.addView(root);setContentView(scroll);
+    TextView heading=text("NATHOENG HEALTH · Android Pilot",25);root.addView(heading);
+    root.addView(text("ทดลองอุปกรณ์เท่านั้น • ไม่บันทึกข้อมูลสุขภาพ • ไม่ได้เข้าสู่ระบบสมาชิก",15));
+    status=text("พร้อมทดสอบอุปกรณ์",16);root.addView(status);
+    identity=text("ยังไม่ได้อ่านบัตร",16);root.addView(identity);
+    Button weightKiosk=button("ชั่งน้ำหนักด้วยบัตรประชาชน");
+    weightKiosk.setOnClickListener(v->{
+      String id=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+      if(id==null){message("โปรดให้ผู้ดูแลลงทะเบียนเครื่อง Health ก่อน");return;}
+      startActivity(new Intent(this,WeightKioskActivity.class).putExtra("device_id",id));
+    });
+    root.addView(weightKiosk);
+    Button device=button("0. ข้อมูลลงทะเบียนเครื่อง Health (สำหรับผู้ดูแล)");
+    device.setOnClickListener(v->{
+      try{
+        String id=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+        if(id==null){id=UUID.randomUUID().toString();getPreferences(MODE_PRIVATE).edit().putString("kiosk_device_id",id).apply();}
+        String publicKey=DeviceIdentity.publicKeyBase64();
+        final String body="Device ID: "+id+"\\n\\nPublic key (SPKI Base64):\\n"+publicKey;
+        TextView textView=text(body,13);textView.setTextIsSelectable(true);
+        new android.app.AlertDialog.Builder(this).setTitle("ลงทะเบียนกับผู้ดูแล Health").setView(textView)
+          .setPositiveButton("คัดลอกข้อมูล", (d,which)->{
+             ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE))
+                 .setPrimaryClip(android.content.ClipData.newPlainText("Health device registration",body));
+             message("คัดลอกข้อมูลเครื่องแล้ว • ส่งให้ผู้ดูแลวัดโดยตรงเท่านั้น");
+          }).setNegativeButton("ปิด",null).show();
+      }catch(Exception e){message("อ่านกุญแจเครื่องไม่สำเร็จ: "+e.getClass().getSimpleName());}
+    });
+    root.addView(device);
+    Button verify=button("0.1 ตรวจสอบอุปกรณ์กับ Health Server");
+    verify.setOnClickListener(v->verifyHealthDevice());
+    root.addView(verify);
+    root.addView(text("การตรวจอุปกรณ์ไม่ใช่การยืนยันสมาชิก และยังไม่เปิดข้อมูลสุขภาพ",14));
+    Button read=button("1. อ่านบัตรประชาชนผ่าน Type-C OTG");read.setOnClickListener(v->requestCardRead());root.addView(read);
+    Button claim=button("1.1 สร้างรหัสยืนยันบัตร Health (ใช้ภายใน 3 นาที)");
+    claim.setOnClickListener(v->createHealthCardClaim());root.addView(claim);
+    Button checkMember=button("1.2 ตรวจสอบบัตรที่ผูก Health แล้ว (ยังไม่เข้าสู่ระบบ)");
+    checkMember.setOnClickListener(v->checkBoundHealthMember());root.addView(checkMember);
+    Button enrollPin=button("1.3 ตั้ง PIN 6 หลักครั้งแรก (ทดลอง)");
+    enrollPin.setOnClickListener(v->showPilotPinDialog(true));root.addView(enrollPin);
+    Button verifyPin=button("1.4 ตรวจ PIN 6 หลัก (ยังไม่เข้าสู่ระบบ)");
+    verifyPin.setOnClickListener(v->showPilotPinDialog(false));root.addView(verifyPin);
+    Button clear=button("ล้างหน้าจอ / สิ้นสุดการทดลอง");clear.setOnClickListener(v->{readGeneration++;clearIdentityAndValues();disconnectBluetooth();message("ล้างข้อมูลแล้ว");});root.addView(clear);
+    root.addView(text("2. ค่าความดันและชีพจร",20));
+    systolic=number("SYS (ตัวบน) mmHg",root);
+    diastolic=number("DIA (ตัวล่าง) mmHg",root);
+    pulse=number("Pulse (ครั้ง/นาที)",root);
+    Button validate=button("ตรวจค่าที่กรอก (ยังไม่บันทึก)");validate.setOnClickListener(v->previewValues());root.addView(validate);
+    root.addView(text("3. รับค่าจาก Bluetooth LE (ถ้าเครื่องรองรับบริการมาตรฐาน)",19));
+    Button scan=button("ค้นหาเครื่องวัด Bluetooth");scan.setOnClickListener(v->startBluetoothScan());root.addView(scan);
+    devices=new LinearLayout(this);devices.setOrientation(LinearLayout.VERTICAL);root.addView(devices);
+    root.addView(text("ค่าจาก Bluetooth จะถูกใส่ในช่องเพื่อให้ตรวจสอบก่อนเท่านั้น การเชื่อมต่อ OMRON HEM-7183T1-C ยังไม่ได้ยืนยัน และยังไม่มีการบันทึกหรือส่งค่าขึ้นเซิร์ฟเวอร์",14));
+    IntentFilter f=new IntentFilter(USB_PERMISSION);
+    f.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);f.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+    if(Build.VERSION.SDK_INT>=33)registerReceiver(usbReceiver,f,Context.RECEIVER_NOT_EXPORTED);
+    else registerReceiver(usbReceiver,f);
   }
+  private TextView text(String label,int size){
+    TextView t=new TextView(this);t.setText(label);t.setTextSize(size);t.setPadding(3,15,3,15);return t;
+  }
+  private Button button(String label){Button b=new Button(this);b.setText(label);b.setAllCaps(false);return b;}
+  private EditText number(String hint,LinearLayout root){
+    root.addView(text(hint,17));
+    EditText n=new EditText(this);n.setSingleLine(true);n.setHint("ระบุตัวเลข");n.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);root.addView(n);return n;
+  }
+  private void message(String text){status.setText(text);}
+  private void clearIdentityAndValues(){
+    stopCardCheck();
+    identity.setText("ยังไม่ได้อ่านบัตร");
+    if(systolic!=null)systolic.setText("");
+    if(diastolic!=null)diastolic.setText("");
+    if(pulse!=null)pulse.setText("");
+  }
+  private UsbDevice firstReader(){
+    if(usb==null)return null;
+    for(UsbDevice d:usb.getDeviceList().values())
+      for(int i=0;i<d.getInterfaceCount();i++)
+        if(d.getInterface(i).getInterfaceClass()==11)return d;
+    return null;
+  }
+  private void requestCardRead(){
+    if(reading)return;
+    UsbDevice d=firstReader();
+    if(d==null){message("ไม่พบเครื่องอ่าน CCID โปรดเสียบ USB Type-C OTG");return;}
+    if(!usb.hasPermission(d)){
+      Intent intent=new Intent(USB_PERMISSION).setPackage(getPackageName());
+      int flags=PendingIntent.FLAG_UPDATE_CURRENT |
+        (Build.VERSION.SDK_INT>=31?PendingIntent.FLAG_MUTABLE:0);
+      PendingIntent reply=PendingIntent.getBroadcast(this,d.getDeviceId(),intent,flags);
+      usb.requestPermission(d,reply);return;
+    }
+    readSmartCard(d);
+  }
+  private void readSmartCard(UsbDevice reader){
+    if(reading)return;
+    stopCardCheck();
+    reading=true;int ticket=++readGeneration;message("กำลังอ่านบัตรจากชิป...");
+    new Thread(()->{
+      String result,error=null,chipId=null;
+      try{
+        ThaiCard.Data card=(ThaiCard.Data)UsbCardProbe.run(usb,reader,msg->runOnUiThread(()->{if(ticket==readGeneration)message(msg);}));
+        String id=card.citizenId;
+        chipId=id;
+        String suffix=id!=null&&id.length()==13?id.substring(9):"----";
+        result="อ่านบัตรสำเร็จ: "+card.name+" • ลงท้าย "+suffix+" (ยังไม่ได้ยืนยันสมาชิก)";
+        // Do not write/store/full-display card number, photo, address, JSON or medical record.
+        card.citizenId=null;card.photo=null;card.name=null;
+      }catch(Exception e){result=null;error=e.getMessage();}
+      final String ok=result,fail=error,currentId=chipId;
+      runOnUiThread(()->{
+        if(ticket!=readGeneration||isDestroyed())return;
+        reading=false;
+        if(ok==null){clearIdentityAndValues();message("อ่านบัตรไม่สำเร็จ: "+fail);}
+        else {identity.setText(ok);startCardCheck(reader,currentId);message("อ่านบัตรได้แล้ว กำลังตรวจว่าบัตรเดิมยังเสียบอยู่ • ยังไม่ยืนยันสมาชิก");}
+      });
+    },"health-otg-read").start();
+  }
+  private void verifyHealthDevice(){
+    if(proofBusy)return;
+    final String deviceId=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+    if(deviceId==null){message("โปรดกดข้อมูลลงทะเบียนเครื่อง (ปุ่ม 0) ก่อน");return;}
+    proofBusy=true;
+    final int ticket=++proofGeneration;
+    message("กำลังตรวจอุปกรณ์กับ Health Server...");
+    new Thread(()->{
+      String result;
+      try {
+        if(HealthDeviceProof.verify(deviceId))
+          result="✓ อุปกรณ์ผ่านการยืนยันจาก Health Server แล้ว • ยังไม่ยืนยันสมาชิก/ยังไม่เปิดข้อมูลสุขภาพ";
+        else result="ยืนยันอุปกรณ์ไม่สำเร็จ";
+      }catch(Exception e){
+        String type=e instanceof java.net.UnknownHostException?"อินเทอร์เน็ตหรือ DNS ใช้งานไม่ได้":
+          e instanceof java.net.SocketTimeoutException?"เชื่อมต่อ Health Server หมดเวลา":
+          e instanceof java.io.IOException?e.getMessage():"เกิดข้อผิดพลาดในการตรวจอุปกรณ์";
+        result="✕ "+type;
+      }
+      final String messageText=result;
+      runOnUiThread(()->{
+        if(ticket!=proofGeneration||isDestroyed())return;
+        proofBusy=false;
+        message(messageText);
+      });
+    },"health-device-proof").start();
+  }
+  private void createHealthCardClaim(){
+    if(cardReader==null||cardTag==null||cardSalt==null||reading||proofBusy){
+      message("อ่านชิปบัตรประชาชนก่อน แล้วเสียบบัตรเดิมค้างไว้");return;
+    }
+    final UsbDevice reader=cardReader;
+    final byte[] expected=cardTag.clone(), salt=cardSalt.clone();
+    final String deviceId=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+    if(deviceId==null){message("ยังไม่มี Device ID");return;}
+    proofBusy=true;
+    final int ticket=++proofGeneration;
+    final int cardTicket=readGeneration;
+    message("กำลังตรวจชิปบัตรเดิมและขอรหัสชั่วคราว...");
+    new Thread(()->{
+      String code=null,err=null;
+      try{
+        if(!usb.hasPermission(reader))throw new IllegalStateException();
+        String freshId=UsbCardProbe.readCitizenId(usb,reader);
+        if(!MessageDigest.isEqual(expected,cardTag(freshId,salt)))throw new IllegalStateException();
+        code=HealthDeviceProof.makeClaim(deviceId,freshId);
+      }catch(Exception e){err="ขอรหัสไม่ได้: บัตรไม่ตรง ไม่พร้อม หรือเซิร์ฟเวอร์ปฏิเสธ";}
+      finally{Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);}
+      final String result=code,error=err;
+      runOnUiThread(()->{
+        if(ticket!=proofGeneration||isDestroyed())return;
+        // A removed or changed card invalidates the claim, but must not leave the UI locked.
+        proofBusy=false;
+        if(cardTicket!=readGeneration)return;
+        if(error!=null){message(error);return;}
+        message("ได้รับรหัสยืนยันแล้ว (หมดอายุใน 3 นาที)");
+        final TextView codeText=text(result,27);
+        claimDialog=new android.app.AlertDialog.Builder(this).setTitle("รหัสยืนยันบัตร Health")
+          .setMessage("แจ้งรหัสนี้ต่อเจ้าหน้าที่วัดเท่านั้น ห้ามส่งเลขบัตรประชาชน")
+          .setView(codeText).setPositiveButton("ปิด",null).create();
+        claimDialog.show();
+        main.postDelayed(()->{
+          if(ticket==proofGeneration&&claimDialog!=null){
+            claimDialog.dismiss();claimDialog=null;
+          }
+        },180000);
+      });
+    },"health-card-claim").start();
+  }
+  /** Proof only. Do not reveal the member name, open a session or transmit readings. */
+  private void checkBoundHealthMember(){
+    if(cardReader==null||cardTag==null||cardSalt==null||reading||proofBusy){
+      message("โปรดอ่านบัตรที่ผูก Health แล้วและเสียบบัตรเดิมค้างไว้");return;
+    }
+    final UsbDevice reader=cardReader;
+    final byte[] expected=cardTag.clone(),salt=cardSalt.clone();
+    final String deviceId=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+    if(deviceId==null){Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);message("ยังไม่ได้ลงทะเบียนเครื่อง");return;}
+    proofBusy=true;
+    final int ticket=++proofGeneration, cardTicket=readGeneration;
+    message("กำลังอ่านชิปใบเดิมซ้ำและตรวจสิทธิ์สมาชิก Health...");
+    new Thread(()->{
+      String result;
+      try{
+        if(!usb.hasPermission(reader))throw new IllegalStateException("USB permission missing");
+        String freshId=UsbCardProbe.readCitizenId(usb,reader);
+        if(!MessageDigest.isEqual(expected,cardTag(freshId,salt)))throw new IllegalStateException("Card changed");
+        if(!HealthDeviceProof.checkBoundCard(deviceId,freshId))throw new IllegalStateException("Not verified");
+        result="✓ ยืนยันการจับคู่สมาชิก Health ผ่านแล้ว • โหมดทดลองเท่านั้น ยังไม่เข้าสู่ระบบหรือเปิดข้อมูลสุขภาพ";
+      }catch(Exception e){
+        result="✕ ยืนยันบัตรไม่สำเร็จ: "+(e instanceof java.io.IOException?e.getMessage():"บัตรไม่ตรงหรืออ่านชิปไม่ได้");
+      }finally{Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);}
+      final String text=result;
+      runOnUiThread(()->{
+        if(ticket!=proofGeneration||isDestroyed())return;
+        proofBusy=false;
+        if(cardTicket!=readGeneration)return;
+        if(text.startsWith("✓"))identity.setText("✓ บัตรนี้จับคู่สมาชิก Health แล้ว • ยังไม่เปิดข้อมูลสุขภาพ");
+        message(text);
+      });
+    },"health-pilot-identity-check").start();
+  }
+  private void showPilotPinDialog(boolean enroll){
+    if(cardReader==null||cardTag==null||cardSalt==null||reading||proofBusy){
+      message("โปรดอ่านบัตร Health และเสียบบัตรเดิมค้างไว้ก่อนตั้งหรือตรวจ PIN");return;
+    }
+    LinearLayout layout=new LinearLayout(this);
+    layout.setPadding(28,20,28,12);layout.setOrientation(LinearLayout.VERTICAL);
+    TextView help=text(enroll?"ตั้ง PIN 6 หลักที่ไม่เดาง่าย และยืนยันอีกครั้ง":"กรอก PIN 6 หลักของบัตรที่ผูก Health แล้ว",16);
+    layout.addView(help);
+    EditText pin=new EditText(this);
+    pin.setHint("PIN 6 หลัก");pin.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+    pin.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});
+    pin.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);layout.addView(pin);
+    EditText confirm=null;
+    if(enroll){
+      confirm=new EditText(this);confirm.setHint("ยืนยัน PIN อีกครั้ง");
+      confirm.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+      confirm.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});
+      confirm.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);layout.addView(confirm);
+    }
+    final EditText again=confirm;
+    pinDialog=new android.app.AlertDialog.Builder(this).setTitle(enroll?"ตั้ง PIN ทดลองครั้งแรก":"ทดลองตรวจ PIN")
+      .setView(layout).setPositiveButton(enroll?"ตั้ง PIN":"ตรวจ PIN",null)
+      .setNegativeButton("ยกเลิก",(d,w)->{}).create();
+    getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+    pinDialog.setOnDismissListener(d->{
+      pin.setText("");if(again!=null)again.setText("");
+      getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+      pinDialog=null;
+    });
+    pinDialog.setOnShowListener(d->pinDialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+      String value=pin.getText().toString();
+      if(!value.matches("[0-9]{6}")){pin.setError("กรุณากรอก PIN 6 หลัก");return;}
+      if(enroll&&!value.equals(again.getText().toString())){again.setError("PIN ไม่ตรงกัน");return;}
+      pinDialog.dismiss();
+      runPilotPin(enroll,value);
+    }));
+    pinDialog.show();
+  }
+  private void runPilotPin(boolean enroll,String pin){
+    if(cardReader==null||cardTag==null||cardSalt==null||proofBusy){message("อ่านบัตรก่อนทดสอบ PIN");return;}
+    final UsbDevice reader=cardReader;
+    final byte[] expected=cardTag.clone(),salt=cardSalt.clone();
+    final String deviceId=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+    if(deviceId==null){Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);message("โปรดลงทะเบียนเครื่องก่อน");return;}
+    proofBusy=true;final int ticket=++proofGeneration,cardTicket=readGeneration;
+    message(enroll?"กำลังตั้ง PIN ทดลอง...":"กำลังตรวจ PIN ทดลอง...");
+    new Thread(()->{
+      String result;
+      try{
+        if(!usb.hasPermission(reader))throw new IllegalStateException("USB");
+        String freshId=UsbCardProbe.readCitizenId(usb,reader);
+        if(!MessageDigest.isEqual(expected,cardTag(freshId,salt)))throw new IllegalStateException("card");
+        boolean ok=HealthDeviceProof.pilotPin(deviceId,freshId,pin,enroll);
+        if(!ok)throw new java.io.IOException("ผลยืนยันจากเซิร์ฟเวอร์ไม่ผ่าน");
+        result=enroll?"✓ ตั้ง PIN ทดลองสำเร็จ • ยังไม่เปิด Session":"✓ ตรวจ PIN ทดลองผ่าน • ยังไม่เปิด Session หรือข้อมูลสุขภาพ";
+      }catch(Exception e){
+        result="✕ ตรวจ PIN ไม่สำเร็จ: "+(e instanceof java.io.IOException?e.getMessage():"บัตรไม่ตรงหรืออ่านชิปไม่ได้");
+      }finally{Arrays.fill(expected,(byte)0);Arrays.fill(salt,(byte)0);}
+      final String output=result;
+      runOnUiThread(()->{
+        if(ticket!=proofGeneration||isDestroyed())return;
+        proofBusy=false;
+        if(cardTicket!=readGeneration)return;
+        message(output);
+      });
+    },"health-pin-pilot").start();
+  }
+  private void previewValues(){
+    try{
+      BleMeasurement.validateManual(systolic.getText().toString(),diastolic.getText().toString(),pulse.getText().toString());
+      message("ค่าตัวอย่าง "+systolic.getText()+"/"+diastolic.getText()+" ชีพจร "+pulse.getText()+" • ตรวจสอบแล้ว (ยังไม่บันทึก)");
+    }catch(IllegalArgumentException e){message(e.getMessage());}
+  }
+  private boolean bluetoothPermission(){
+    if(Build.VERSION.SDK_INT>=31){
+      if(checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)!=PackageManager.PERMISSION_GRANTED||
+        checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED){
+        requestPermissions(new String[]{Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT},51);return false;
+      }
+    }else if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED){
+      requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},52);return false;
+    }
+    return true;
+  }
+  private void startBluetoothScan(){
+    if(!bluetoothPermission()){message("อนุญาต Bluetooth แล้วกดค้นหาอีกครั้ง");return;}
+    if(bluetooth==null||!bluetooth.isEnabled()){message("กรุณาเปิด Bluetooth ในมือถือก่อน");return;}
+    stopBluetoothScan();
+    seen.clear();devices.removeAllViews();
+    bleScanner=bluetooth.getBluetoothLeScanner();
+    if(bleScanner==null){message("Bluetooth LE ไม่พร้อม");return;}
+    try{
+      scanning=true;bleScanner.startScan(scanCallback);main.postDelayed(stopScan,12000);
+      message("กำลังค้นหาเครื่อง Bluetooth 12 วินาที");
+    }catch(SecurityException e){scanning=false;message("มือถือยังไม่ให้สิทธิ์ Bluetooth");}
+  }
+  private void stopBluetoothScan(){
+    main.removeCallbacks(stopScan);
+    if(scanning&&bleScanner!=null)try{bleScanner.stopScan(scanCallback);}catch(SecurityException ignored){}
+    scanning=false;
+  }
+  private void connectBluetooth(BluetoothDevice device,String label){
+    if(!bluetoothPermission())return;
+    stopBluetoothScan();disconnectBluetooth();
+    try{gatt=device.connectGatt(this,false,new BluetoothGattCallback(){
+      @Override public void onConnectionStateChange(BluetoothGatt g,int status,int state){
+        if(status!=BluetoothGatt.GATT_SUCCESS||state==BluetoothProfile.STATE_DISCONNECTED){
+          runOnUiThread(()->message("Bluetooth หลุดการเชื่อมต่อ • ไม่บันทึกค่า"));
+          g.close();return;
+        }
+        if(state==BluetoothProfile.STATE_CONNECTED)try{g.discoverServices();}catch(SecurityException ignored){}
+      }
+      @Override public void onServicesDiscovered(BluetoothGatt g,int status){
+        if(status!=BluetoothGatt.GATT_SUCCESS){runOnUiThread(()->message("อ่านบริการ Bluetooth ไม่สำเร็จ"));return;}
+        BluetoothGattCharacteristic chara=null;boolean indicate=false;
+        BluetoothGattService bp=g.getService(BP_SERVICE);
+        if(bp!=null){chara=bp.getCharacteristic(BP_VALUE);indicate=true;}
+        if(chara==null){BluetoothGattService hr=g.getService(HR_SERVICE);if(hr!=null)chara=hr.getCharacteristic(HR_VALUE);}
+        if(chara==null){runOnUiThread(()->message("อุปกรณ์นี้ไม่พบมาตรฐาน Blood Pressure 0x1810 / Heart Rate 0x180D"));return;}
+        BluetoothGattDescriptor desc=chara.getDescriptor(CCCD);
+        if(desc==null){runOnUiThread(()->message("อุปกรณ์ไม่รองรับการแจ้งค่ามาตรฐาน"));return;}
+        try{
+          g.setCharacteristicNotification(chara,true);
+          byte[] v=indicate?BluetoothGattDescriptor.ENABLE_INDICATION_VALUE:BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE;
+          if(Build.VERSION.SDK_INT>=33)g.writeDescriptor(desc,v);
+          else{desc.setValue(v);g.writeDescriptor(desc);}
+          runOnUiThread(()->message("เชื่อม Bluetooth แล้ว โปรดวัดจริงบนเครื่องเพื่อทดลองรับค่า"));
+        }catch(SecurityException e){runOnUiThread(()->message("ไม่สามารถตั้งค่าการรับ Bluetooth"));}
+      }
+      @Override public void onCharacteristicChanged(BluetoothGatt g,BluetoothGattCharacteristic c,byte[] value){received(c,value);}
+      @Override public void onCharacteristicChanged(BluetoothGatt g,BluetoothGattCharacteristic c){received(c,c.getValue());}
+    });message("กำลังเชื่อม Bluetooth: "+label);}
+    catch(SecurityException e){message("มือถือยังไม่ให้สิทธิ์ Bluetooth");}
+  }
+  private void received(BluetoothGattCharacteristic c,byte[] bytes){
+    if(c==null||bytes==null)return;
+    try{
+      if(BP_VALUE.equals(c.getUuid())){
+        BleMeasurement.Pressure v=BleMeasurement.pressure(bytes);
+        runOnUiThread(()->{
+          systolic.setText(String.valueOf(v.systolic));diastolic.setText(String.valueOf(v.diastolic));
+          if(v.pulse!=null)pulse.setText(String.valueOf(v.pulse));
+          message("รับค่าความดันผ่าน Bluetooth แล้ว • โปรดตรวจเทียบหน้าจอเครื่อง ก่อนบันทึกเมื่อระบบยืนยันตัวตนพร้อม");
+        });
+      }else if(HR_VALUE.equals(c.getUuid())){
+        int hr=BleMeasurement.heartRate(bytes);
+        runOnUiThread(()->{pulse.setText(String.valueOf(hr));message("รับชีพจร Bluetooth "+hr+" • ตรวจสอบก่อนบันทึก");});
+      }
+    }catch(IllegalArgumentException e){runOnUiThread(()->message("ค่าจาก Bluetooth ไม่ถูกต้อง: "+e.getMessage()));}
+  }
+  private void disconnectBluetooth(){
+    stopBluetoothScan();
+    if(gatt!=null)try{gatt.disconnect();gatt.close();}catch(SecurityException ignored){}
+    gatt=null;
+  }
+  @Override protected void onStop(){
+    super.onStop();if(pinDialog!=null){pinDialog.dismiss();pinDialog=null;}proofGeneration++;proofBusy=false;readGeneration++;stopCardCheck();identity.setText("ปิดข้อมูลบัตรเมื่อออกจากแอป");
+    clearIdentityAndValues();disconnectBluetooth();
+  }
+  @Override protected void onDestroy(){unregisterReceiver(usbReceiver);disconnectBluetooth();super.onDestroy();}
 }

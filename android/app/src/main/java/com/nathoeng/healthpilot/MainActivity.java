@@ -133,6 +133,13 @@ public final class MainActivity extends Activity {
     root.addView(text("ทดลองอุปกรณ์เท่านั้น • ไม่บันทึกข้อมูลสุขภาพ • ไม่ได้เข้าสู่ระบบสมาชิก",15));
     status=text("พร้อมทดสอบอุปกรณ์",16);root.addView(status);
     identity=text("ยังไม่ได้อ่านบัตร",16);root.addView(identity);
+    Button weightKiosk=button("ชั่งน้ำหนักด้วยบัตรประชาชน");
+    weightKiosk.setOnClickListener(v->{
+      String id=getPreferences(MODE_PRIVATE).getString("kiosk_device_id",null);
+      if(id==null){message("โปรดให้ผู้ดูแลลงทะเบียนเครื่อง Health ก่อน");return;}
+      startActivity(new Intent(this,WeightKioskActivity.class).putExtra("device_id",id));
+    });
+    root.addView(weightKiosk);
     Button device=button("0. ข้อมูลลงทะเบียนเครื่อง Health (สำหรับผู้ดูแล)");
     device.setOnClickListener(v->{
       try{

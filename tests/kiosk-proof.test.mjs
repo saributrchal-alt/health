@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import {validSignature,signedKioskMessage,resultDeviceProof,signedCardPresenceMessage,resultCardPresenceProof,pilotIdentityEligible} from "../lib/kiosk-proof.mjs";
+import {validSignature,signedKioskMessage,resultDeviceProof,signedCardPresenceMessage,resultCardPresenceProof,pilotIdentityEligible,signedWeightMessage,resultWeightProof} from "../lib/kiosk-proof.mjs";
 const id="c90b7c1d-4048-4e55-a427-3864ccf7bc32",ch="4d8d724a-dcf0-4ff0-8f5d-4cc4ba0c5a45";
 const {publicKey,privateKey}=crypto.generateKeyPairSync("ec",{namedCurve:"prime256v1"});
 const pub=publicKey.export({format:"der",type:"spki"}).toString("base64");
@@ -47,4 +47,18 @@ test("pilot identity approval requires active member, explicit consent and verif
  assert.equal(pilotIdentityEligible(b,h,{...t,membership_status:"cancelled"},citizen),false);
  assert.equal(pilotIdentityEligible(b,h,{...t,id_card_verified_at:null},citizen),false);
  assert.equal(pilotIdentityEligible(b,{...h,member_id:"1395396f-c0b0-46a3-a500-774bd611cfa0"},t,citizen),false);
+});
+
+test("weight save proof binds the member's chip, reading ID and exact weight",()=>{
+ const reading={device_id:id,challenge_id:ch,citizen_id:citizen,
+   reading_id:"823d9bc2-dd0b-49fe-92a7-ea742727614c",weight_hundredths:6465};
+ const signature=crypto.sign("sha256",signedWeightMessage(reading),privateKey).toString("base64");
+ const proof={...reading,signature};
+ assert.equal(resultWeightProof(proof,dev,challenge),true);
+ assert.equal(resultWeightProof({...proof,weight_hundredths:6495},dev,challenge),false);
+ assert.equal(resultWeightProof({...proof,citizen_id:otherCitizen},dev,challenge),false);
+ assert.equal(resultWeightProof({...proof,reading_id:ch},dev,challenge),false);
+ assert.equal(resultWeightProof({...proof,signature:cardSignature},dev,challenge),false);
+ assert.equal(resultWeightProof(proof,dev,{...challenge,used_at:challenge.issued_at}),false);
+ assert.equal(resultCardPresenceProof(proof,dev,challenge),false);
 });

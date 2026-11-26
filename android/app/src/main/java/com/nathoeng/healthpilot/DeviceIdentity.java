@@ -29,6 +29,16 @@ public final class DeviceIdentity {
     ensureKey();UUID.fromString(deviceId);UUID.fromString(challengeId);
     if(citizenId==null||!citizenId.matches("[0-9]{13}"))throw new IllegalArgumentException("Invalid chip");
     String value="nathoeng-health-card-presence-v1:"+deviceId+":"+challengeId+":"+citizenId;
+    return sign(value);
+  }
+  public static String signWeight(String deviceId,String challengeId,String citizenId,String readingId,int hundredths)throws Exception{
+    UUID.fromString(deviceId);UUID.fromString(challengeId);UUID.fromString(readingId);
+    if(!citizenId.matches("[0-9]{13}")||hundredths<500||hundredths>30000)
+      throw new IllegalArgumentException("Invalid weight proof");
+    return sign("nathoeng-health-scalefit-v1:"+deviceId+":"+challengeId+":"+citizenId+":"+readingId+":"+hundredths);
+  }
+  private static String sign(String value)throws Exception{
+    ensureKey();
     Signature s=Signature.getInstance("SHA256withECDSA");
     s.initSign((PrivateKey)store().getKey(KEY_ALIAS,null));
     s.update(value.getBytes(StandardCharsets.UTF_8));
@@ -37,9 +47,6 @@ public final class DeviceIdentity {
   public static String signChallenge(String deviceId,String challengeId)throws Exception{
     ensureKey();UUID.fromString(deviceId);UUID.fromString(challengeId);
     String text="nathoeng-health-kiosk-v1:"+deviceId+":"+challengeId;
-    Signature s=Signature.getInstance("SHA256withECDSA");
-    s.initSign((PrivateKey)store().getKey(KEY_ALIAS,null));
-    s.update(text.getBytes(StandardCharsets.UTF_8));
-    return Base64.getEncoder().encodeToString(s.sign());
+    return sign(text);
   }
 }

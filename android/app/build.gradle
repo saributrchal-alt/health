@@ -23,7 +23,10 @@ android {
         }
     }
     buildTypes {
-        debug { debuggable true }
+        debug {
+            debuggable true
+            applicationIdSuffix '.weighttest'
+        }
         release {
             minifyEnabled false
             if (signingKeystore && signingPassword) signingConfig signingConfigs.pilotStable
